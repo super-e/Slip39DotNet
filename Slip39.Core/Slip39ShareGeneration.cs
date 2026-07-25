@@ -65,7 +65,7 @@ public static class Slip39ShareGeneration
         }
         
         // Step 2: Generate a random 15-bit value id
-        var rng = RandomNumberGenerator.Create();
+        using var rng = RandomNumberGenerator.Create();
         var idBytes = new byte[2];
         rng.GetBytes(idBytes);
         ushort identifier = (ushort)((idBytes[0] << 7) | (idBytes[1] >> 1)); // 15 bits

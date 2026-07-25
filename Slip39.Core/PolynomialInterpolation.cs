@@ -113,7 +113,7 @@ public static class PolynomialInterpolation
         int n = secret.Length;
         
         // Generate digest D (first 4 bytes are HMAC of secret with random key R)
-        var rng = RandomNumberGenerator.Create();
+        using var rng = RandomNumberGenerator.Create();
         var R = new byte[Math.Max(0, n - 4)];
         rng.GetBytes(R);
         
