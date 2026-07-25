@@ -192,7 +192,9 @@ public static class Slip39ShareParser
     /// </summary>
     private static Slip39Share ParseFromBits(bool[] bits)
     {
-        if (bits.Length < 70) // Minimum: 15+1+4+4+4+4+4+4+128+30 = 200 bits for 128-bit master secret
+        // Minimum valid share: header(40) + share_value(128) + checksum(30) = 198 bits,
+        // rounded up to 20 words × 10 bits = 200 bits.
+        if (bits.Length < 200)
             throw new ArgumentException("Bit array too short for valid SLIP-0039 share", nameof(bits));
 
         int bitIndex = 0;
@@ -221,65 +223,29 @@ public static class Slip39ShareParser
         // Parse member threshold (4 bits)
         var memberThreshold = (byte)ReadBits(bits, ref bitIndex, 4);
 
-        // Calculate share value length according to SLIP-39 specification
-        // The share value is left-padded with 0s to the nearest multiple of 10 bits
-        int remainingBits = bits.Length - bitIndex - 30; // Subtract 30 bits for checksum
+        // Determine share value length directly from the total bit count.
+        //
+        // Layout: header(40) | padding(p) | shareValue(s) | checksum(30)
+        // Invariants:
+        //   • totalBits   = bits.Length  (exact multiple of 10 — one word = 10 bits)
+        //   • p + s       = totalBits - 70   ("remaining" after header and checksum)
+        //   • s           is a multiple of 16 bits (SLIP-0039: secret length is a multiple of 2 bytes)
+        //   • 0 ≤ p < 10  (padding is less than one word)
+        //
+        // Because s is a multiple of 16 and p < 10 < 16:
+        //   s = (remaining / 16) * 16   (largest multiple of 16 that fits)
+        //   p = remaining - s
+        int totalBits = bits.Length;   // exact multiple of 10
+        int remaining = totalBits - 70; // = paddingBits + shareValueBits
+        int shareValueBits = (remaining / 16) * 16;
+        int paddingBits = remaining - shareValueBits;
         
-        // Calculate padding using the same logic as ShareToIndices:
-        // The padding is calculated to make the total bits a multiple of 10
-        int headerBits = 40; // Already read
-        int checksumBits = 30;
-        int totalBits = bits.Length;
-        int wordCount = totalBits / 10; // Should be exact for valid mnemonic
+        if (paddingBits < 0 || paddingBits >= 10)
+            throw new ArgumentException(
+                $"Invalid mnemonic format: computed padding ({paddingBits}) is out of the valid 0–9 bit range",
+                nameof(bits));
         
-        // Calculate the padding bits using the same formula as ShareToIndices
-        // totalBits = headerBits + paddingBits + shareValueBits + checksumBits
-        // paddingBits = totalBits - headerBits - shareValueBits - checksumBits
-        // But we need to derive shareValueBits from remainingBits and padding
-        
-        // From ShareToIndices: paddingBits = totalBits - (headerBits + shareValueBits + checksumBits)
-        // We know: remainingBits = paddingBits + shareValueBits
-        // So: shareValueBits = remainingBits - paddingBits
-        // And: paddingBits = totalBits - headerBits - shareValueBits - checksumBits
-        // Substituting: paddingBits = totalBits - headerBits - (remainingBits - paddingBits) - checksumBits
-        // Solving: 2 * paddingBits = totalBits - headerBits - remainingBits - checksumBits
-        // Therefore: paddingBits = (totalBits - headerBits - remainingBits - checksumBits) / 2
-        
-        // Wait, that's wrong. Let me use the direct calculation:
-        // remainingBits = totalBits - headerBits - checksumBits
-        // From ShareToIndices: shareValueBits = share.ShareValue.Length * 8
-        // And: paddingBits = (wordCount * 10) - (headerBits + shareValueBits + checksumBits)
-        
-        // Since we don't know shareValueBits yet, let's work backwards:
-        // We know the total bits must be a multiple of 10 (wordCount * 10)
-        // And we know headerBits = 40, checksumBits = 30
-        // So: shareValueBits + paddingBits = totalBits - 40 - 30 = remainingBits
-        
-        // From the ShareToIndices logic, we can calculate what padding would be needed
-        // for different share value sizes and see which one gives us the right total
-        
-        int shareValueBits = remainingBits; // Start with all remaining bits as share value
-        int paddingBits = 0;
-        
-        // Try different share value byte lengths to find the one that produces valid padding
-        for (int testBytes = 1; testBytes <= remainingBits / 8; testBytes++)
-        {
-            int testShareValueBits = testBytes * 8;
-            int testTotalContentBits = headerBits + testShareValueBits + checksumBits;
-            int testWordCount = (testTotalContentBits + 9) / 10; // Round up
-            int testTotalBits = testWordCount * 10;
-            int testPaddingBits = testTotalBits - testTotalContentBits;
-            
-            // Check if this matches our actual total bits
-            if (testTotalBits == totalBits)
-            {
-                shareValueBits = testShareValueBits;
-                paddingBits = testPaddingBits;
-                break;
-            }
-        }
-        
-        // Skip padding bits (left-padding with 0s)
+        // Skip the left-padding bits (all zero per SLIP-0039 spec)
         bitIndex += paddingBits;
         
         // Calculate share value bytes
