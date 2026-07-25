@@ -69,7 +69,8 @@ public static class Slip39Encryption
     }
     
     /// <summary>
-    /// Core Feistel network implementation matching reference
+    /// Core Feistel network implementation matching reference.
+    /// Intermediate half-buffers are zeroed as soon as they are no longer needed.
     /// </summary>
     private static byte[] Crypt(int identifier, int iterationExponent, byte[] masterSecret, byte[] range, string? passphrase, bool extendable)
     {
@@ -80,44 +81,71 @@ public static class Slip39Encryption
         Array.Copy(masterSecret, 0, left, 0, len);
         Array.Copy(masterSecret, len, right, 0, len);
         
-        foreach (byte i in range)
+        try
         {
-            byte[] f = Feistel(identifier, iterationExponent, i, right, passphrase, extendable);
-            var newLeft = right;
-            right = XorBytes(left, f);
-            left = newLeft;
+            foreach (byte i in range)
+            {
+                byte[] f = Feistel(identifier, iterationExponent, i, right, passphrase, extendable);
+                byte[] newRight = XorBytes(left, f);
+                // Zero the Feistel output and the consumed left half immediately.
+                CryptographicOperations.ZeroMemory(f);
+                CryptographicOperations.ZeroMemory(left);
+                // Advance: the current right becomes the next left.
+                left = right;
+                right = newRight;
+            }
+            
+            // Return right || left  (final working buffers are copied first, then zeroed in finally)
+            var result = new byte[masterSecret.Length];
+            Array.Copy(right, 0, result, 0, len);
+            Array.Copy(left, 0, result, len, len);
+            return result;
         }
-        
-        // Return right || left
-        var result = new byte[masterSecret.Length];
-        Array.Copy(right, 0, result, 0, len);
-        Array.Copy(left, 0, result, len, len);
-        return result;
+        finally
+        {
+            // Zero whatever left/right buffers still hold sensitive material.
+            CryptographicOperations.ZeroMemory(left);
+            CryptographicOperations.ZeroMemory(right);
+        }
     }
     
     /// <summary>
-    /// Feistel function matching reference implementation exactly
+    /// Feistel function matching reference implementation exactly.
+    /// Sensitive intermediate buffers (key, passphrase bytes, salt) are zeroed before returning.
+    /// Note: the returned byte[] is itself sensitive and is zeroed by the caller (Crypt).
     /// </summary>
     private static byte[] Feistel(int id, int iterationExponent, byte step, byte[] block, string? passphrase, bool extendable)
     {
-        // Check passphrase for printable ASCII only (like reference implementation)
-        // Passphrase validation removed - Unicode normalization handles encoding
-        
         // Key = step || passphrase bytes (with Unicode normalization as per SLIP-0039 spec)
         var passphraseBytes = Slip39Passphrase.NormalizePassphrase(passphrase);
         byte[] key = ArrayConcat(new byte[] { step }, passphraseBytes);
         
         // Salt prefix = "shamir" + identifier bytes (or empty if extendable)
-        byte[] saltPrefix = extendable ? new byte[0] : ArrayConcat(Encoding.UTF8.GetBytes("shamir"), new byte[] { (byte)(id >> 8), (byte)(id & 0xff) });
+        byte[] saltPrefix = extendable ? Array.Empty<byte>() : ArrayConcat(Encoding.UTF8.GetBytes("shamir"), new byte[] { (byte)(id >> 8), (byte)(id & 0xff) });
         
-        // Salt = saltPrefix || block
+        // Salt = saltPrefix || block  (block is a sensitive half of the working secret)
         byte[] salt = ArrayConcat(saltPrefix, block);
         
         // Iterations = (BASE_ITERATION_COUNT / ROUND_COUNT) << iterationExponent
         int iters = (BASE_ITERATION_COUNT / ROUND_COUNT) << iterationExponent;
         
-        using var pbkdf2 = new Rfc2898DeriveBytes(key, salt, iters, HashAlgorithmName.SHA256);
-        return pbkdf2.GetBytes(block.Length);
+        try
+        {
+            using var pbkdf2 = new Rfc2898DeriveBytes(key, salt, iters, HashAlgorithmName.SHA256);
+            return pbkdf2.GetBytes(block.Length);
+        }
+        finally
+        {
+            // Zero sensitive intermediates.  The passphrase string itself is immutable
+            // and cannot be cleared from the managed heap.
+            CryptographicOperations.ZeroMemory(key);
+            CryptographicOperations.ZeroMemory(passphraseBytes);
+            CryptographicOperations.ZeroMemory(salt);
+            // saltPrefix contains only public data ("shamir" + id bytes) when non-extendable;
+            // zero it anyway to be consistent, but skip the Array.Empty singleton.
+            if (saltPrefix.Length > 0)
+                CryptographicOperations.ZeroMemory(saltPrefix);
+        }
     }
     
     

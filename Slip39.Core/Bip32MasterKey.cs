@@ -28,52 +28,68 @@ public static class Bip32MasterKey
         if (masterSecret == null)
             throw new ArgumentNullException(nameof(masterSecret));
         
-        // Use master secret directly as seed for BIP32 derivation
-        // The passphrase was already used during SLIP-0039 decryption
-        var seed = masterSecret;
+        // Use master secret directly as seed for BIP32 derivation.
+        // The passphrase was already consumed during SLIP-0039 decryption.
+        byte[]? hash = null;
+        byte[]? privateKey = null;
+        byte[]? chainCode = null;
+        byte[]? extendedKey = null;
         
-        // Derive master key using HMAC-SHA512 with "Bitcoin seed" as per SLIP-0039 specification
-        using var hmac = new HMACSHA512(Encoding.UTF8.GetBytes("Bitcoin seed"));
-        var hash = hmac.ComputeHash(seed);
-        
-        // Split the 64-byte hash into 32-byte private key and 32-byte chain code
-        var privateKey = new byte[PRIVATE_KEY_LENGTH];
-        var chainCode = new byte[CHAIN_CODE_LENGTH];
-        
-        Array.Copy(hash, 0, privateKey, 0, PRIVATE_KEY_LENGTH);
-        Array.Copy(hash, PRIVATE_KEY_LENGTH, chainCode, 0, CHAIN_CODE_LENGTH);
-        
-        // Build BIP32 extended private key structure
-        var extendedKey = new byte[EXTENDED_KEY_LENGTH];
-        int offset = 0;
-        
-        // Version (4 bytes): 0x0488ADE4 for mainnet private key
-        Array.Copy(MAINNET_PRIVATE_VERSION, 0, extendedKey, offset, 4);
-        offset += 4;
-        
-        // Depth (1 byte): 0x00 for master key
-        extendedKey[offset] = 0x00;
-        offset += 1;
-        
-        // Parent fingerprint (4 bytes): 0x00000000 for master key
-        Array.Clear(extendedKey, offset, 4);
-        offset += 4;
-        
-        // Child number (4 bytes): 0x00000000 for master key
-        Array.Clear(extendedKey, offset, 4);
-        offset += 4;
-        
-        // Chain code (32 bytes)
-        Array.Copy(chainCode, 0, extendedKey, offset, CHAIN_CODE_LENGTH);
-        offset += CHAIN_CODE_LENGTH;
-        
-        // Private key (33 bytes): 0x00 prefix + 32-byte private key
-        extendedKey[offset] = 0x00; // Private key prefix
-        offset += 1;
-        Array.Copy(privateKey, 0, extendedKey, offset, PRIVATE_KEY_LENGTH);
-        
-        // Encode with Base58Check
-        return Base58Check.Encode(extendedKey);
+        try
+        {
+            // Derive master key using HMAC-SHA512 with "Bitcoin seed" as per SLIP-0039 specification
+            using var hmac = new HMACSHA512(Encoding.UTF8.GetBytes("Bitcoin seed"));
+            hash = hmac.ComputeHash(masterSecret);
+            
+            // Split the 64-byte hash into 32-byte private key and 32-byte chain code
+            privateKey = new byte[PRIVATE_KEY_LENGTH];
+            chainCode = new byte[CHAIN_CODE_LENGTH];
+            
+            Array.Copy(hash, 0, privateKey, 0, PRIVATE_KEY_LENGTH);
+            Array.Copy(hash, PRIVATE_KEY_LENGTH, chainCode, 0, CHAIN_CODE_LENGTH);
+            
+            // Build BIP32 extended private key structure
+            extendedKey = new byte[EXTENDED_KEY_LENGTH];
+            int offset = 0;
+            
+            // Version (4 bytes): 0x0488ADE4 for mainnet private key
+            Array.Copy(MAINNET_PRIVATE_VERSION, 0, extendedKey, offset, 4);
+            offset += 4;
+            
+            // Depth (1 byte): 0x00 for master key
+            extendedKey[offset] = 0x00;
+            offset += 1;
+            
+            // Parent fingerprint (4 bytes): 0x00000000 for master key
+            Array.Clear(extendedKey, offset, 4);
+            offset += 4;
+            
+            // Child number (4 bytes): 0x00000000 for master key
+            Array.Clear(extendedKey, offset, 4);
+            offset += 4;
+            
+            // Chain code (32 bytes)
+            Array.Copy(chainCode, 0, extendedKey, offset, CHAIN_CODE_LENGTH);
+            offset += CHAIN_CODE_LENGTH;
+            
+            // Private key (33 bytes): 0x00 prefix + 32-byte private key
+            extendedKey[offset] = 0x00; // Private key prefix
+            offset += 1;
+            Array.Copy(privateKey, 0, extendedKey, offset, PRIVATE_KEY_LENGTH);
+            
+            // Encode with Base58Check (result is a string; raw bytes are zeroed below)
+            return Base58Check.Encode(extendedKey);
+        }
+        finally
+        {
+            // Zero all sensitive intermediate buffers after the encoded string has been produced.
+            // Note: the Base58Check-encoded string itself is an immutable managed string and
+            // cannot be zeroed, but the raw key material is cleared here.
+            if (hash != null) CryptographicOperations.ZeroMemory(hash);
+            if (privateKey != null) CryptographicOperations.ZeroMemory(privateKey);
+            if (chainCode != null) CryptographicOperations.ZeroMemory(chainCode);
+            if (extendedKey != null) CryptographicOperations.ZeroMemory(extendedKey);
+        }
     }
     
     /// <summary>
@@ -94,43 +110,56 @@ public static class Bip32MasterKey
             throw new ArgumentException($"Combined secret must be 64 bytes for BIP32 reconstruction, got {combinedSecret.Length} bytes", nameof(combinedSecret));
         }
         
-        // Extract the private key and chain code
-        var privateKey = new byte[PRIVATE_KEY_LENGTH];
-        var chainCode = new byte[CHAIN_CODE_LENGTH];
-        Array.Copy(combinedSecret, 0, privateKey, 0, PRIVATE_KEY_LENGTH);
-        Array.Copy(combinedSecret, PRIVATE_KEY_LENGTH, chainCode, 0, CHAIN_CODE_LENGTH);
+        byte[]? privateKey = null;
+        byte[]? chainCode = null;
+        byte[]? extendedKey = null;
         
-        // Build BIP32 extended private key structure
-        var extendedKey = new byte[EXTENDED_KEY_LENGTH];
-        int offset = 0;
-        
-        // Version (4 bytes): 0x0488ADE4 for mainnet private key
-        Array.Copy(MAINNET_PRIVATE_VERSION, 0, extendedKey, offset, 4);
-        offset += 4;
-        
-        // Depth (1 byte): 0x00 for master key
-        extendedKey[offset] = 0x00;
-        offset += 1;
-        
-        // Parent fingerprint (4 bytes): 0x00000000 for master key
-        Array.Clear(extendedKey, offset, 4);
-        offset += 4;
-        
-        // Child number (4 bytes): 0x00000000 for master key
-        Array.Clear(extendedKey, offset, 4);
-        offset += 4;
-        
-        // Chain code (32 bytes)
-        Array.Copy(chainCode, 0, extendedKey, offset, CHAIN_CODE_LENGTH);
-        offset += CHAIN_CODE_LENGTH;
-        
-        // Private key (33 bytes): 0x00 prefix + 32-byte private key
-        extendedKey[offset] = 0x00; // Private key prefix
-        offset += 1;
-        Array.Copy(privateKey, 0, extendedKey, offset, PRIVATE_KEY_LENGTH);
-        
-        // Encode with Base58Check
-        return Base58Check.Encode(extendedKey);
+        try
+        {
+            // Extract the private key and chain code
+            privateKey = new byte[PRIVATE_KEY_LENGTH];
+            chainCode = new byte[CHAIN_CODE_LENGTH];
+            Array.Copy(combinedSecret, 0, privateKey, 0, PRIVATE_KEY_LENGTH);
+            Array.Copy(combinedSecret, PRIVATE_KEY_LENGTH, chainCode, 0, CHAIN_CODE_LENGTH);
+            
+            // Build BIP32 extended private key structure
+            extendedKey = new byte[EXTENDED_KEY_LENGTH];
+            int offset = 0;
+            
+            // Version (4 bytes): 0x0488ADE4 for mainnet private key
+            Array.Copy(MAINNET_PRIVATE_VERSION, 0, extendedKey, offset, 4);
+            offset += 4;
+            
+            // Depth (1 byte): 0x00 for master key
+            extendedKey[offset] = 0x00;
+            offset += 1;
+            
+            // Parent fingerprint (4 bytes): 0x00000000 for master key
+            Array.Clear(extendedKey, offset, 4);
+            offset += 4;
+            
+            // Child number (4 bytes): 0x00000000 for master key
+            Array.Clear(extendedKey, offset, 4);
+            offset += 4;
+            
+            // Chain code (32 bytes)
+            Array.Copy(chainCode, 0, extendedKey, offset, CHAIN_CODE_LENGTH);
+            offset += CHAIN_CODE_LENGTH;
+            
+            // Private key (33 bytes): 0x00 prefix + 32-byte private key
+            extendedKey[offset] = 0x00; // Private key prefix
+            offset += 1;
+            Array.Copy(privateKey, 0, extendedKey, offset, PRIVATE_KEY_LENGTH);
+            
+            // Encode with Base58Check (result is a string; raw bytes are zeroed below)
+            return Base58Check.Encode(extendedKey);
+        }
+        finally
+        {
+            if (privateKey != null) CryptographicOperations.ZeroMemory(privateKey);
+            if (chainCode != null) CryptographicOperations.ZeroMemory(chainCode);
+            if (extendedKey != null) CryptographicOperations.ZeroMemory(extendedKey);
+        }
     }
 }
 

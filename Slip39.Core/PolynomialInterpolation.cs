@@ -128,36 +128,47 @@ public static class PolynomialInterpolation
             randomShares.Add(randomShare);
         }
 
-        // Create all shares
-        var allShares = new byte[shareCount][];
-        
-        // First T-2 shares are random
-        for (int i = 0; i < threshold - 2; i++)
+        // R is now embedded in D; zero the standalone copy.
+        CryptographicOperations.ZeroMemory(R);
+
+        try
         {
-            allShares[i] = randomShares[i];
-        }
-        
-        // Remaining shares are computed using interpolation
-        for (int i = threshold - 2; i < shareCount; i++)
-        {
-            // Build points list for interpolation at index i
-            var points = new List<(byte index, byte[] values)>();
+            // Create all shares
+            var allShares = new byte[shareCount][];
             
-            // Add the random shares (indices 0 to T-3)
-            for (int j = 0; j < threshold - 2; j++)
+            // First T-2 shares are random  (these become output — do NOT zero them)
+            for (int i = 0; i < threshold - 2; i++)
             {
-                points.Add(((byte)j, randomShares[j]));
+                allShares[i] = randomShares[i];
             }
             
-            // Add fixed points: (254, D) and (255, S)
-            points.Add((254, D));
-            points.Add((255, secret));
-            
-            // Interpolate to get share at index i
-            allShares[i] = Interpolate((byte)i, points);
-        }
+            // Remaining shares are computed using interpolation
+            for (int i = threshold - 2; i < shareCount; i++)
+            {
+                // Build points list for interpolation at index i
+                var points = new List<(byte index, byte[] values)>();
+                
+                // Add the random shares (indices 0 to T-3)
+                for (int j = 0; j < threshold - 2; j++)
+                {
+                    points.Add(((byte)j, randomShares[j]));
+                }
+                
+                // Add fixed points: (254, D) and (255, S)
+                points.Add((254, D));
+                points.Add((255, secret));
+                
+                // Interpolate to get share at index i
+                allShares[i] = Interpolate((byte)i, points);
+            }
 
-        return allShares;
+            return allShares;
+        }
+        finally
+        {
+            // D holds HMAC₄(R,S)||R — zero it now that all shares have been derived.
+            CryptographicOperations.ZeroMemory(D);
+        }
     }
 
     /// <summary>
@@ -223,11 +234,18 @@ public static class PolynomialInterpolation
         using var hmac = new HMACSHA256(randomKey);
         byte[] hash = hmac.ComputeHash(secret);
         
-        var digest = new byte[4 + randomKey.Length];
-        Array.Copy(hash, 0, digest, 0, 4);  // First 4 bytes of HMAC
-        Array.Copy(randomKey, 0, digest, 4, randomKey.Length);  // R
-        
-        return digest;
+        try
+        {
+            var digest = new byte[4 + randomKey.Length];
+            Array.Copy(hash, 0, digest, 0, 4);  // First 4 bytes of HMAC
+            Array.Copy(randomKey, 0, digest, 4, randomKey.Length);  // R
+            return digest;
+        }
+        finally
+        {
+            // Zero the full HMAC output — only the first 4 bytes live on in `digest`.
+            CryptographicOperations.ZeroMemory(hash);
+        }
     }
 
     /// <summary>
