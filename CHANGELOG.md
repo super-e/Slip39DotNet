@@ -49,6 +49,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Security best practices
 - Installation and setup guides
 
+### Fixed
+- `Slip39Share.ToHex()` and `Slip39ShareParser.ParseFromHex()` no longer disagree on the
+  bit layout. `ToHex()` appended the share value padding while the parser expected it
+  before the value, so a share exported as hex could not be read back — `ParseFromHex()`
+  rejected it with "Invalid mnemonic checksum". `ToHex()` now derives its bit stream from
+  the same `ShareToIndices` used by `ToMnemonic()`, and `ParseFromHex()` discards the
+  trailing byte-alignment slack before parsing.
+
+### Changed
+- **Breaking**: the hexadecimal share format produced by `Slip39Share.ToHex()` and the CLI
+  `--format hex` has changed to the canonical SLIP-0039 bit layout. Hex strings written by
+  earlier versions encode a different bit order and will not parse; re-export affected
+  shares from their mnemonic form. Mnemonic and JSON formats are unaffected.
+- The share-length parser now rejects padding above 8 bits, matching the SLIP-0039 wording
+  ("MUST NOT exceed 8 bits") instead of the equivalent but less obvious 10-bit bound.
+
 ## [1.0.0] - 2025-01-XX
 
 ### Added
