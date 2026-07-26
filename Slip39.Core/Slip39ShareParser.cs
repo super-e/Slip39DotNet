@@ -71,6 +71,15 @@ public static class Slip39ShareParser
         {
             var bytes = Convert.FromHexString(hexString);
             var bits = BytesToBits(bytes);
+
+            // The hex form carries the canonical 10-bit-per-word stream produced by
+            // ShareToIndices, right-padded with zero bits to reach a byte boundary.
+            // That trailing slack is always fewer than 8 bits — i.e. less than one
+            // word — so flooring the bit count to a multiple of 10 recovers the exact
+            // original stream. ParseFromBits requires that multiple-of-10 length.
+            int wordCount = bits.Length / 10;
+            Array.Resize(ref bits, wordCount * 10);
+
             return ParseFromBits(bits);
         }
         catch (FormatException ex)
@@ -227,22 +236,24 @@ public static class Slip39ShareParser
         //
         // Layout: header(40) | padding(p) | shareValue(s) | checksum(30)
         // Invariants:
-        //   • totalBits   = bits.Length  (exact multiple of 10 — one word = 10 bits)
+        //   • totalBits   = bits.Length, an exact multiple of 10 (one word = 10 bits).
+        //     Callers are responsible for this: ParseFromMnemonicWords gets it from
+        //     IndicesToBits, ParseFromHex trims the byte-alignment slack first.
         //   • p + s       = totalBits - 70   ("remaining" after header and checksum)
         //   • s           is a multiple of 16 bits (SLIP-0039: secret length is a multiple of 2 bytes)
-        //   • 0 ≤ p < 10  (padding is less than one word)
+        //   • p ≤ 8       (SLIP-0039: the padding "MUST NOT exceed 8 bits")
         //
-        // Because s is a multiple of 16 and p < 10 < 16:
+        // Because s is a multiple of 16 and p ≤ 8 < 16:
         //   s = (remaining / 16) * 16   (largest multiple of 16 that fits)
-        //   p = remaining - s
-        int totalBits = bits.Length;   // exact multiple of 10
+        //   p = remaining - s           (equivalently, remaining mod 16)
+        int totalBits = bits.Length;
         int remaining = totalBits - 70; // = paddingBits + shareValueBits
         int shareValueBits = (remaining / 16) * 16;
         int paddingBits = remaining - shareValueBits;
-        
-        if (paddingBits < 0 || paddingBits >= 10)
+
+        if (paddingBits > 8)
             throw new ArgumentException(
-                $"Invalid mnemonic format: computed padding ({paddingBits}) is out of the valid 0–9 bit range",
+                $"Invalid mnemonic format: computed padding ({paddingBits} bits) exceeds the 8-bit maximum allowed by SLIP-0039",
                 nameof(bits));
         
         // Skip the left-padding bits (all zero per SLIP-0039 spec)

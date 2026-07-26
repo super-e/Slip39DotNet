@@ -178,17 +178,4 @@ public static class Slip39Encryption
         
         return result;
     }
-    
-    /// <summary>
-    /// Check passphrase for printable ASCII characters only (matching reference implementation)
-    /// Note: This method is now disabled to allow Unicode passphrases with normalization
-    /// </summary>
-    private static string CheckPassphrase(string passphrase)
-    {
-        // Unicode passphrases are allowed and will be normalized
-        // Only check for null/empty
-        if (passphrase == null)
-            throw new ArgumentNullException(nameof(passphrase));
-        return passphrase;
-    }
 }
