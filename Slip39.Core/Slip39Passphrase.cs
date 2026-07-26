@@ -16,6 +16,12 @@ public static class Slip39Passphrase
     /// <param name="passphrase">The raw passphrase string</param>
     /// <returns>The passphrase as UTF-8 bytes</returns>
     /// <exception cref="ArgumentNullException">Thrown when passphrase is null</exception>
+    /// <remarks>
+    /// Callers own the returned array and may zero it: this method must keep returning a
+    /// freshly allocated buffer on every call. Caching or interning the result would let
+    /// <c>Slip39Encryption.Feistel</c>, which zeroes these bytes once the round key has been
+    /// derived, silently corrupt every subsequent call.
+    /// </remarks>
     public static byte[] NormalizePassphrase(string? passphrase)
     {
         // Handle null or empty passphrase as "TREZOR" default according to SLIP-0039

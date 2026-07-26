@@ -193,52 +193,29 @@ public class Slip39Share
 
     /// <summary>
     /// Serializes the share to a hexadecimal string representation.
-    /// The format is: identifier(15) + ext(1) + e(4) + GI(4) + Gt(4) + g(4) + I(4) + t(4) + ps(variable) + C(30)
+    /// The format is the canonical SLIP-0039 bit stream — identifier(15) + ext(1) + e(4) +
+    /// GI(4) + Gt(4) + g(4) + I(4) + t(4) + padding + share value + C(30) — right-padded
+    /// with zero bits to reach a byte boundary.
     /// </summary>
+    /// <remarks>
+    /// The bit stream is derived from <see cref="Slip39ShareParser.ShareToIndices"/>, the
+    /// same source used by <see cref="ToMnemonic"/>, so the hex and mnemonic forms encode
+    /// identical bits by construction. Deriving the layout independently here is what
+    /// previously left the two out of step: the padding was appended instead of prepended,
+    /// and <see cref="Slip39ShareParser.ParseFromHex"/> could not read back what this
+    /// method wrote.
+    /// </remarks>
     /// <returns>Hexadecimal string representation of the share</returns>
     public string ToHex()
     {
-        // Calculate total bits needed
-        int paddedShareValueBits = ShareValue.Length * 8;
-        int totalBits = 15 + 1 + 4 + 4 + 4 + 4 + 4 + 4 + paddedShareValueBits + 30;
-        
-        // Create a bit array to hold all the data
-        var bits = new List<bool>();
-        
-        // Add identifier (15 bits)
-        AddBits(bits, Identifier, 15);
-        
-        // Add extendable flag (1 bit)
-        bits.Add(IsExtendable);
-        
-        // Add iteration exponent (4 bits)
-        AddBits(bits, IterationExponent, 4);
-        
-        // Add group index (4 bits)
-        AddBits(bits, GroupIndex, 4);
-        
-        // Add group threshold (4 bits)
-        AddBits(bits, GroupThreshold, 4);
-        
-        // Add group count (4 bits)
-        AddBits(bits, GroupCount, 4);
-        
-        // Add member index (4 bits)
-        AddBits(bits, MemberIndex, 4);
-        
-        // Add member threshold (4 bits)
-        AddBits(bits, MemberThreshold, 4);
-        
-        // Add padded share value
-        foreach (byte b in ShareValue)
+        var indices = Slip39ShareParser.ShareToIndices(this);
+
+        var bits = new List<bool>(indices.Length * 10);
+        foreach (var index in indices)
         {
-            AddBits(bits, b, 8);
+            AddBits(bits, (uint)index, 10);
         }
-        
-        // Add checksum (30 bits)
-        AddBits(bits, Checksum, 30);
-        
-        // Convert bits to bytes and then to hex
+
         return BitsToHex(bits);
     }
 
