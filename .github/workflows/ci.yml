@@ -41,9 +41,13 @@ jobs:
       
     - name: Upload coverage reports to Codecov
       if: matrix.os == 'ubuntu-latest'
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v7
       with:
-        file: '**/coverage.cobertura.xml'
+        # Tokenless uploads are rate limited per IP across all of GitHub's shared
+        # runners, which is why every run was failing with HTTP 429. Set the
+        # CODECOV_TOKEN repository secret to upload under this project's own quota.
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: '**/coverage.cobertura.xml'
         fail_ci_if_error: false
 
   security-scan:
