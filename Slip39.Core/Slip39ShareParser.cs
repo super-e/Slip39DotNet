@@ -256,7 +256,20 @@ public static class Slip39ShareParser
                 $"Invalid mnemonic format: computed padding ({paddingBits} bits) exceeds the 8-bit maximum allowed by SLIP-0039",
                 nameof(bits));
         
-        // Skip the left-padding bits (all zero per SLIP-0039 spec)
+        // The left-padding bits must all be zero: SLIP-0039 states "All padding bits MUST
+        // be «0»". Checking here keeps the rule local and gives a diagnostic that names the
+        // real problem. Without it the mnemonic is still rejected, but only as a side effect
+        // of ValidateShareChecksum re-encoding the share with canonical zero padding, which
+        // reports a checksum error and points a reader at the wrong thing — and would vanish
+        // silently if that method were ever changed to verify the input words directly.
+        for (int i = 0; i < paddingBits; i++)
+        {
+            if (bits[bitIndex + i])
+                throw new ArgumentException(
+                    "Invalid mnemonic padding: the bits padding the share value must all be zero",
+                    nameof(bits));
+        }
+
         bitIndex += paddingBits;
         
         // Calculate share value bytes
