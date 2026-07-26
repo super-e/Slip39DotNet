@@ -64,6 +64,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shares from their mnemonic form. Mnemonic and JSON formats are unaffected.
 - The share-length parser now rejects padding above 8 bits, matching the SLIP-0039 wording
   ("MUST NOT exceed 8 bits") instead of the equivalent but less obvious 10-bit bound.
+- A mnemonic whose share-value padding bits are not zero now reports "Invalid mnemonic
+  padding" instead of "Invalid mnemonic checksum". Such mnemonics were already rejected, so
+  this changes the diagnostic rather than the verdict — but the old message sent anyone
+  debugging a hand-copied share looking for a mistyped word instead of a malformed share.
 
 ### Security
 - The secret recovery path now zeroes its intermediate key material, matching the treatment

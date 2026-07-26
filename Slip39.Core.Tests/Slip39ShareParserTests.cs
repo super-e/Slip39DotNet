@@ -39,6 +39,51 @@ public class Slip39ShareParserTests
         _testJson = Slip39ShareParser.ToJson(_testShare);
     }
 
+    #region Mnemonic Padding Tests
+
+    /// <summary>
+    /// Official SLIP-0039 vectors 3 and 22, "Mnemonic with invalid padding". Both were already
+    /// rejected before the padding check existed, but only indirectly: ValidateShareChecksum
+    /// re-encodes the share with canonical zero padding, so corrupt padding surfaced as a
+    /// checksum failure. Asserting on the message is the point — it is what distinguishes the
+    /// explicit local check from that emergent behaviour, and it fails if the check is removed.
+    /// </summary>
+    public static TheoryData<string> InvalidPaddingMnemonics => new()
+    {
+        // 3. Mnemonic with invalid padding (128 bits)
+        "duckling enlarge academic academic email result length solution fridge kidney coal piece deal husband erode duke ajar music cargo fitness",
+        // 22. Mnemonic with invalid padding (256 bits)
+        "theory painting academic academic campus sweater year military elder discuss acne wildlife boring employer fused large satoshi bundle carbon diagnose anatomy hamster leaves tracks paces beyond phantom capital marvel lips facility obtain sister",
+    };
+
+    [Theory]
+    [MemberData(nameof(InvalidPaddingMnemonics))]
+    public void ParseFromMnemonic_NonZeroPadding_ReportsPaddingNotChecksum(string mnemonic)
+    {
+        // Act
+        var ex = Assert.Throws<ArgumentException>(() => Slip39ShareParser.ParseFromMnemonic(mnemonic));
+
+        // Assert
+        Assert.Contains("padding", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("checksum", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ParseFromMnemonic_BadWord_StillReportsChecksum_NotPadding()
+    {
+        // Arrange — vector 2, "Mnemonic with invalid checksum (128 bits)": the padding is fine,
+        // so the padding check must not swallow genuine checksum failures.
+        const string mnemonic = "duckling enlarge academic academic agency result length solution fridge kidney coal piece deal husband erode duke ajar critical decision kidney";
+
+        // Act
+        var ex = Assert.Throws<ArgumentException>(() => Slip39ShareParser.ParseFromMnemonic(mnemonic));
+
+        // Assert
+        Assert.Contains("checksum", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    #endregion
+
     #region Hex Parsing Tests
 
     /// <summary>
