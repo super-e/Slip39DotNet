@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+
 namespace Slip39.Core;
 
 /// <summary>
@@ -15,6 +17,13 @@ public static class Slip39ShareCombination
     /// <returns>The recovered master secret</returns>
     /// <exception cref="ArgumentException">Thrown when share validation fails</exception>
     /// <exception cref="InvalidOperationException">Thrown when share combination fails</exception>
+    /// <remarks>
+    /// The reconstructed group shares and the encrypted master secret are zeroed before this
+    /// method returns — they are recovered material that never reaches the caller. The master
+    /// secret itself is the return value, so the caller owns it and should zero it with
+    /// <see cref="System.Security.Cryptography.CryptographicOperations.ZeroMemory(byte[])"/>
+    /// once finished. The shares passed in belong to the caller and are left untouched.
+    /// </remarks>
     public static byte[] CombineShares(List<Slip39Share> shares, string? passphrase)
     {
         if (shares == null)
@@ -36,31 +45,50 @@ public static class Slip39ShareCombination
         
         // Step 2: Recover each group share using RecoverSecret
         var groupShareValues = new List<(byte index, byte[] value)>();
-        
-        foreach (var kvp in sharesByGroup.OrderBy(g => g.Key))
+        byte[]? encryptedMasterSecret = null;
+
+        try
         {
-            byte groupIndex = kvp.Key;
-            var groupShares = kvp.Value;
-            int memberThreshold = groupShares[0].ActualMemberThreshold;
-            
-            // Create member index/share value pairs for this group
-            var memberShareValues = groupShares
-                .Select(s => (s.MemberIndex, s.ShareValue))
-                .ToList();
-            
-            // Recover the group share using polynomial interpolation
-            byte[] groupShareValue = PolynomialInterpolation.RecoverSecret(memberThreshold, memberShareValues);
-            groupShareValues.Add((groupIndex, groupShareValue));
+            foreach (var kvp in sharesByGroup.OrderBy(g => g.Key))
+            {
+                byte groupIndex = kvp.Key;
+                var groupShares = kvp.Value;
+                int memberThreshold = groupShares[0].ActualMemberThreshold;
+
+                // Create member index/share value pairs for this group
+                var memberShareValues = groupShares
+                    .Select(s => (s.MemberIndex, s.ShareValue))
+                    .ToList();
+
+                // Recover the group share using polynomial interpolation
+                byte[] groupShareValue = PolynomialInterpolation.RecoverSecret(memberThreshold, memberShareValues);
+                groupShareValues.Add((groupIndex, groupShareValue));
+            }
+
+            // Step 3: Recover the encrypted master secret using group shares
+            encryptedMasterSecret = PolynomialInterpolation.RecoverSecret(groupThreshold, groupShareValues);
+
+            // Step 4: Decrypt the master secret
+            return Slip39Encryption.Decrypt(encryptedMasterSecret, passphrase,
+                iterationExponent, identifier, isExtendable);
         }
-        
-        // Step 3: Recover the encrypted master secret using group shares
-        byte[] encryptedMasterSecret = PolynomialInterpolation.RecoverSecret(groupThreshold, groupShareValues);
-        
-        // Step 4: Decrypt the master secret
-        byte[] masterSecret = Slip39Encryption.Decrypt(encryptedMasterSecret, passphrase, 
-            iterationExponent, identifier, isExtendable);
-        
-        return masterSecret;
+        finally
+        {
+            // RecoverSecret hands ownership of what it returns to us, and none of this
+            // reaches the caller: the group shares reconstruct the secret just as the
+            // mnemonics do, and the encrypted master secret only lacks the passphrase.
+            // Zero both. Note the shares in `memberShareValues` are the caller's and are
+            // deliberately not touched here.
+            foreach (var (_, value) in groupShareValues)
+            {
+                CryptographicOperations.ZeroMemory(value);
+            }
+
+            if (encryptedMasterSecret != null)
+            {
+                CryptographicOperations.ZeroMemory(encryptedMasterSecret);
+            }
+        }
     }
     
     /// <summary>

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Slip39.Core;
 using Xunit;
 
@@ -219,6 +220,83 @@ public class PolynomialInterpolationTests
     #endregion
 
     #region Secret Recovery Tests
+
+    /// <summary>
+    /// RecoverSecret zeroes its intermediate buffers in a finally block, and zeroes the
+    /// recovered secret too on the failure paths where it never reaches the caller. This
+    /// guards the mistake that arrangement invites: clearing the array that was just
+    /// returned. A caller that got an all-zero secret back would silently derive the wrong
+    /// BIP32 key rather than see an error.
+    /// </summary>
+    [Fact]
+    public void RecoverSecret_ReturnedSecret_IsNotZeroedByTheCleanupPath()
+    {
+        // Arrange
+        var originalSecret = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+        int threshold = 3;
+
+        var shares = PolynomialInterpolation.SplitSecret(threshold, 5, originalSecret);
+        var sharePoints = shares.Select((share, index) => ((byte)index, share)).Take(threshold).ToList();
+
+        // Act
+        var recovered = PolynomialInterpolation.RecoverSecret(threshold, sharePoints);
+
+        // Assert
+        Assert.Equal(originalSecret, recovered);
+        Assert.Contains(recovered, b => b != 0);
+    }
+
+    /// <summary>
+    /// The digest comparison uses CryptographicOperations.FixedTimeEquals. This checks the
+    /// swap kept the observable contract: a share set that fails validation still raises,
+    /// and does so regardless of how many leading digest bytes happen to match.
+    /// </summary>
+    [Fact]
+    public void RecoverSecret_DigestMismatch_ThrowsRegardlessOfLeadingByteAgreement()
+    {
+        // Arrange
+        var originalSecret = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+        int threshold = 3;
+        var shares = PolynomialInterpolation.SplitSecret(threshold, 5, originalSecret);
+
+        // Corrupt one share; every byte position is exercised so the comparison is forced
+        // through both the "differs immediately" and "differs late" cases.
+        for (int position = 0; position < originalSecret.Length; position++)
+        {
+            var corrupted = shares.Select(s => (byte[])s.Clone()).ToArray();
+            corrupted[0][position] ^= 0xFF;
+            var sharePoints = corrupted.Select((share, index) => ((byte)index, share)).Take(threshold).ToList();
+
+            // Act & Assert
+            Assert.Throws<InvalidOperationException>(() =>
+                PolynomialInterpolation.RecoverSecret(threshold, sharePoints));
+        }
+    }
+
+    /// <summary>
+    /// With threshold 1 the secret is just the share, and returning the caller's array
+    /// directly would alias it. That matters now that the returned buffer is owned — and
+    /// eventually zeroed — by the caller: CombineShares zeroes what RecoverSecret gives it,
+    /// which for a 1-of-1 group would wipe the ShareValue of a share the caller still holds.
+    /// </summary>
+    [Fact]
+    public void RecoverSecret_ThresholdOne_ReturnsCopyNotAliasOfInputShare()
+    {
+        // Arrange
+        var shareValue = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+        var sharePoints = new List<(byte, byte[])> { ((byte)0, shareValue) };
+
+        // Act
+        var recovered = PolynomialInterpolation.RecoverSecret(1, sharePoints);
+
+        // Assert
+        Assert.Equal(shareValue, recovered);
+        Assert.NotSame(shareValue, recovered);
+
+        // Mutating the returned buffer, as an owner is entitled to, must not touch the input
+        CryptographicOperations.ZeroMemory(recovered);
+        Assert.Contains(shareValue, b => b != 0);
+    }
 
     [Fact]
     public void RecoverSecret_ValidShares_RecoversOriginalSecret()

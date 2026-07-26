@@ -7,6 +7,40 @@ namespace Slip39.Core.Tests;
 /// </summary>
 public class Slip39ShareCombinationTests
 {
+    /// <summary>
+    /// CombineShares zeroes the group shares it reconstructs, but those belong to it, not to
+    /// the caller. A 1-of-1 group is where the two could be confused: recovering a group share
+    /// from a single member share is a no-op that could hand back the caller's own ShareValue,
+    /// and zeroing that would destroy the share the caller still holds. Recombining the same
+    /// list twice is the cheapest way to catch it — the second attempt would see wiped shares.
+    /// </summary>
+    [Fact]
+    public void CombineShares_SingleMemberGroups_LeavesCallerSharesIntact()
+    {
+        // Arrange — every group is 1-of-1, so each group share is recovered at threshold 1
+        var masterSecret = new byte[16] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                                          0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10 };
+        var passphrase = "test passphrase";
+        var groupConfigs = new List<Slip39ShareGeneration.GroupConfig>
+        {
+            new(1, 1), // Group 0: 1 of 1
+            new(1, 1)  // Group 1: 1 of 1
+        };
+
+        var shares = Slip39ShareGeneration.GenerateShares(2, groupConfigs, masterSecret, passphrase, 0);
+        var shareValuesBefore = shares.Select(s => (byte[])s.ShareValue.Clone()).ToList();
+
+        // Act
+        var first = Slip39ShareCombination.CombineShares(shares, passphrase);
+
+        // Assert — the input shares survive untouched, so a second pass still works
+        Assert.Equal(masterSecret, first);
+        Assert.Equal(shareValuesBefore, shares.Select(s => s.ShareValue).ToList());
+
+        var second = Slip39ShareCombination.CombineShares(shares, passphrase);
+        Assert.Equal(masterSecret, second);
+    }
+
     [Fact]
     public void CombineShares_BasicScenario_ShouldRecoverMasterSecret()
     {

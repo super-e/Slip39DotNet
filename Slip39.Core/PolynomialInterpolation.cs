@@ -180,6 +180,12 @@ public static class PolynomialInterpolation
     /// <returns>The recovered secret</returns>
     /// <exception cref="ArgumentException">Thrown when shares are invalid or insufficient</exception>
     /// <exception cref="InvalidOperationException">Thrown when secret validation fails</exception>
+    /// <remarks>
+    /// Every intermediate buffer holding key material is zeroed before this method returns.
+    /// The recovered secret itself cannot be: it is the return value, so ownership passes to
+    /// the caller, who should zero it with <see cref="CryptographicOperations.ZeroMemory(byte[])"/>
+    /// once done. On any failure path the secret never escapes, so it is zeroed here instead.
+    /// </remarks>
     public static byte[] RecoverSecret(int threshold, IList<(byte index, byte[] value)> shares)
     {
         if (shares == null)
@@ -188,38 +194,69 @@ public static class PolynomialInterpolation
         if (shares.Count < threshold)
             throw new ArgumentException($"Insufficient shares: need {threshold}, got {shares.Count}");
 
-        // Special case: if threshold is 1, return any share
+        // Special case: if threshold is 1, any share is the secret.
+        // Return a copy, not the caller's array: the contract below hands ownership of the
+        // return value to the caller, so aliasing an input here would mean zeroing it later
+        // destroys a share the caller still holds.
         if (threshold == 1)
         {
-            return shares.First().value;
+            byte[] onlyShare = shares.First().value;
+            var copy = new byte[onlyShare.Length];
+            Array.Copy(onlyShare, copy, onlyShare.Length);
+            return copy;
         }
 
         // Use only the first 'threshold' shares for interpolation
         var selectedShares = shares.Take(threshold).ToList();
 
-        // Recover the secret at f(255)
-        byte[] recoveredSecret = Interpolate(255, selectedShares);
-        
-        // Recover the digest at f(254) for validation
-        byte[] recoveredDigest = Interpolate(254, selectedShares);
-        
-        // Validate the secret using the digest
-        if (recoveredDigest.Length < 4)
-            throw new InvalidOperationException("Invalid digest length");
-            
-        byte[] R = new byte[recoveredDigest.Length - 4];
-        Array.Copy(recoveredDigest, 4, R, 0, R.Length);
-        
-        byte[] expectedDigest = GenerateDigest(recoveredSecret, R);
-        
-        // Compare first 4 bytes of the digests
-        for (int i = 0; i < 4; i++)
-        {
-            if (recoveredDigest[i] != expectedDigest[i])
-                throw new InvalidOperationException("Secret validation failed: digest mismatch");
-        }
+        byte[]? recoveredSecret = null;
+        byte[]? recoveredDigest = null;
+        byte[]? R = null;
+        byte[]? expectedDigest = null;
+        bool secretEscapes = false;
 
-        return recoveredSecret;
+        try
+        {
+            // Recover the secret at f(255)
+            recoveredSecret = Interpolate(255, selectedShares);
+
+            // Recover the digest at f(254) for validation
+            recoveredDigest = Interpolate(254, selectedShares);
+
+            // Validate the secret using the digest
+            if (recoveredDigest.Length < 4)
+                throw new InvalidOperationException("Invalid digest length");
+
+            R = new byte[recoveredDigest.Length - 4];
+            Array.Copy(recoveredDigest, 4, R, 0, R.Length);
+
+            expectedDigest = GenerateDigest(recoveredSecret, R);
+
+            // Compare the first 4 bytes in constant time. Both operands derive from
+            // caller-supplied shares, so an early-exit comparison would reveal how many
+            // leading bytes of the digest a candidate share set got right.
+            if (!CryptographicOperations.FixedTimeEquals(
+                    recoveredDigest.AsSpan(0, 4), expectedDigest.AsSpan(0, 4)))
+            {
+                throw new InvalidOperationException("Secret validation failed: digest mismatch");
+            }
+
+            secretEscapes = true;
+            return recoveredSecret;
+        }
+        finally
+        {
+            // The digest material is ours on every path — D holds HMAC₄(R,S)||R, and R is
+            // the HMAC key — so it is zeroed whether validation succeeded or not.
+            if (recoveredDigest != null) CryptographicOperations.ZeroMemory(recoveredDigest);
+            if (R != null) CryptographicOperations.ZeroMemory(R);
+            if (expectedDigest != null) CryptographicOperations.ZeroMemory(expectedDigest);
+
+            // The secret is only handed to the caller once validation passes. If we throw,
+            // nothing else references it, so clear it rather than abandoning it on the heap.
+            if (!secretEscapes && recoveredSecret != null)
+                CryptographicOperations.ZeroMemory(recoveredSecret);
+        }
     }
 
     /// <summary>

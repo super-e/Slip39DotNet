@@ -65,6 +65,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The share-length parser now rejects padding above 8 bits, matching the SLIP-0039 wording
   ("MUST NOT exceed 8 bits") instead of the equivalent but less obvious 10-bit bound.
 
+### Security
+- The secret recovery path now zeroes its intermediate key material, matching the treatment
+  the generation path already received. `PolynomialInterpolation.RecoverSecret` clears the
+  recovered digest, the HMAC key `R` and the expected digest, and clears the recovered
+  secret itself on the failure paths where it never reaches the caller.
+  `Slip39ShareCombination.CombineShares` clears the reconstructed group shares and the
+  encrypted master secret. Both methods now document that the caller owns — and should
+  zero — the array they return.
+- `RecoverSecret` compares the share digest with `CryptographicOperations.FixedTimeEquals`
+  instead of a byte loop that returned on the first mismatch.
+- `RecoverSecret` returns a copy rather than the caller's array in the threshold-1 case.
+  Recovering from a single share is a no-op that previously handed back the input, which
+  the new ownership contract makes unsafe: for a 1-of-1 group, `CombineShares` would have
+  zeroed a `ShareValue` still held by the caller.
+
+  Zeroing managed buffers is best-effort: the GC may relocate an array before the `finally`
+  runs, leaving unreachable copies behind, and nothing prevents the memory reaching swap or
+  a core dump. It shortens the exposure window rather than eliminating it.
+
 ## [1.0.0] - 2025-01-XX
 
 ### Added
