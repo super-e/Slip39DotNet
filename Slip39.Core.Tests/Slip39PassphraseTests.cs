@@ -97,16 +97,40 @@ public class Slip39PassphraseTests
     }
 
     [Fact]
-    public void EstimatePassphraseEntropy_VariousCharacters_ShouldProvideReasonableEstimate()
+    public void MaximumPassphraseEntropyBits_VariousCharacters_ShouldProvideReasonableEstimate()
     {
         // Arrange
         var passphrase = "abcDEF123!@#\u2764"; // Includes Unicode heart
 
         // Act
-        var entropy = Slip39Passphrase.EstimatePassphraseEntropy(passphrase);
+        var entropy = Slip39Passphrase.MaximumPassphraseEntropyBits(passphrase);
 
         // Assert
         Assert.True(entropy > 0);
+    }
+
+    [Fact]
+    public void EstimatePassphraseEntropy_ForwardsToItsReplacement()
+    {
+        // The old name is kept as an obsolete alias, so callers keep compiling.
+#pragma warning disable CS0618 // Type or member is obsolete
+        var viaOldName = Slip39Passphrase.EstimatePassphraseEntropy("abcDEF123!@#");
+#pragma warning restore CS0618
+        Assert.Equal(Slip39Passphrase.MaximumPassphraseEntropyBits("abcDEF123!@#"), viaOldName);
+    }
+
+    [Fact]
+    public void MaximumPassphraseEntropyBits_IsAnUpperBound_NotAStrengthRating()
+    {
+        // "Password1!" is a dictionary word with the two most predictable decorations there
+        // are, and it still scores like ten uniformly random characters from the same alphabet.
+        // This is the documented behaviour of the method, not a defect in it \u2014 the test is here
+        // so that anyone tempted to treat the number as a strength score sees the counterexample.
+        var weak = Slip39Passphrase.MaximumPassphraseEntropyBits("Password1!");
+        var random = Slip39Passphrase.MaximumPassphraseEntropyBits("T7q!vZ2m#K");
+
+        Assert.Equal(random, weak, precision: 10);
+        Assert.True(weak > 60);
     }
     
     [Fact]
@@ -125,6 +149,29 @@ public class Slip39PassphraseTests
         Assert.Equal(Encoding.UTF8.GetBytes(passphrase).Length, info.NormalizedByteLength);
     }
     
+    [Fact]
+    public void PassphraseInfo_ToString_DoesNotContainThePassphrase()
+    {
+        // The compiler-generated ToString of a record prints every property, so one interpolated
+        // "{info}" in a log line or an exception message wrote the passphrase out in full.
+        var passphrase = "correct horse battery staple";
+
+        var text = Slip39Passphrase.PreparePassphrase(passphrase).ToString();
+
+        Assert.DoesNotContain(passphrase, text, StringComparison.Ordinal);
+        Assert.DoesNotContain("correct", text, StringComparison.Ordinal);
+        Assert.Contains("PassphraseInfo", text, StringComparison.Ordinal);
+        Assert.Contains("28", text, StringComparison.Ordinal); // the length is not secret
+    }
+
+    [Fact]
+    public void ArePassphrasesEqual_DifferentPassphrases_ShouldReturnFalse()
+    {
+        Assert.False(Slip39Passphrase.ArePassphrasesEqual("alpha", "beta"));
+        Assert.False(Slip39Passphrase.ArePassphrasesEqual("alpha", "alphaa"));
+        Assert.False(Slip39Passphrase.ArePassphrasesEqual("alpha", null)); // null means "TREZOR"
+    }
+
     [Fact]
     public void ValidatePassphrase_CommonWhitespace_ShouldBeValid()
     {
@@ -162,23 +209,23 @@ public class Slip39PassphraseTests
     }
     
     [Fact]
-    public void EstimatePassphraseEntropy_EmptyPassphrase_ShouldReturnZero()
+    public void MaximumPassphraseEntropyBits_EmptyPassphrase_ShouldReturnZero()
     {
         // Act - Empty passphrase should be treated as null for entropy estimation
-        var entropy = Slip39Passphrase.EstimatePassphraseEntropy("");
+        var entropy = Slip39Passphrase.MaximumPassphraseEntropyBits("");
         
         // Assert - Empty input to entropy estimation returns 0
         Assert.Equal(0.0, entropy);
     }
     
     [Fact]
-    public void EstimatePassphraseEntropy_LowercaseOnly_ShouldReturnReasonableEntropy()
+    public void MaximumPassphraseEntropyBits_LowercaseOnly_ShouldReturnReasonableEntropy()
     {
         // Arrange
         var passphrase = "lowercase";
-        
+
         // Act
-        var entropy = Slip39Passphrase.EstimatePassphraseEntropy(passphrase);
+        var entropy = Slip39Passphrase.MaximumPassphraseEntropyBits(passphrase);
         
         // Assert
         // Should be approximately passphrase.Length * log2(26)

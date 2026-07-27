@@ -237,6 +237,33 @@ public class GaloisField256Tests
         Assert.Equal(expectedResult, result);
     }
 
+    [Theory]
+    [InlineData(246, 8455448)]        // log(246) = 254, so the product used to overflow int here
+    [InlineData(246, int.MaxValue)]
+    [InlineData(255, 1000000)]
+    [InlineData(3, 2000000000)]
+    public void Power_LargeExponent_MatchesRepeatedMultiplication(byte baseElement, int exponent)
+    {
+        // a^n = a^(n mod 255) for a != 0: the multiplicative group of GF(256) has order 255.
+        byte expected = 1;
+        for (int i = 0; i < exponent % 255; i++)
+        {
+            expected = GaloisField256.Multiply(expected, baseElement);
+        }
+
+        Assert.Equal(expected, GaloisField256.Power(baseElement, exponent));
+    }
+
+    [Fact]
+    public void Power_ToTheGroupOrder_ReturnsOne()
+    {
+        // a^255 = 1 for every non-zero a, which is what makes reducing the exponent sound.
+        for (int element = 1; element <= 255; element++)
+        {
+            Assert.Equal(1, GaloisField256.Power((byte)element, 255));
+        }
+    }
+
     [Fact]
     public void FieldOperations_SatisfyDistributiveProperty()
     {

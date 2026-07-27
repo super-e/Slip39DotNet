@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Slip39.Core
 {
@@ -10,15 +13,40 @@ namespace Slip39.Core
     /// SLIP-0039 wordlist containing 1024 words for mnemonic generation and validation.
     /// Each word is mapped to an index from 0 to 1023.
     /// </summary>
+    /// <remarks>
+    /// The wordlist is the mapping between mnemonics and bits: change it and every share this
+    /// process reads or writes changes meaning, silently and consistently enough to look correct.
+    /// It is therefore loaded from the embedded resource only, verified on load, and exposed
+    /// read-only.
+    /// </remarks>
     public static class Wordlist
     {
-        private static readonly Lazy<string[]> _words = new Lazy<string[]>(LoadWords);
+        /// <summary>
+        /// SHA-256 of the 1024 words, lowercased and joined with '\n'. Hashing the words rather
+        /// than the file makes the constant independent of line endings and of the byte order
+        /// mark. The list this pins is the one the official SLIP-0039 test vectors pass against.
+        /// </summary>
+        private const string WordlistHash = "0e3ea826bde1b1bc77e39a8d9b3682efb2c0946087d911ee6550f29bd12e87c6";
+
+        /// <summary>
+        /// The number of characters that uniquely identify a word. The SLIP-0039 wordlist is
+        /// built so that a word can be recognised — and typed — from its first four letters.
+        /// </summary>
+        private const int UniquePrefixLength = 4;
+
+        private static readonly Lazy<ReadOnlyCollection<string>> _words =
+            new Lazy<ReadOnlyCollection<string>>(LoadWords);
         private static readonly Lazy<Dictionary<string, int>> _wordToIndex = new Lazy<Dictionary<string, int>>(CreateWordToIndexMap);
 
         /// <summary>
-        /// Gets the array of all 1024 words in the SLIP-0039 wordlist.
+        /// Gets the 1024 words of the SLIP-0039 wordlist, in index order.
         /// </summary>
-        public static string[] Words => _words.Value;
+        /// <remarks>
+        /// Read-only by design. This used to hand out the live internal array, so any code in the
+        /// process — a helper, a test that forgot to restore state, a dependency — could rewrite
+        /// how every mnemonic encodes and decodes for the lifetime of the process.
+        /// </remarks>
+        public static IReadOnlyList<string> Words => _words.Value;
 
         /// <summary>
         /// Gets the total number of words in the wordlist.
@@ -35,7 +63,7 @@ namespace Slip39.Core
         {
             if (index < 0 || index >= WordCount)
             {
-                throw new ArgumentOutOfRangeException(nameof(index), 
+                throw new ArgumentOutOfRangeException(nameof(index),
                     $"Index must be between 0 and {WordCount - 1}.");
             }
 
@@ -125,110 +153,117 @@ namespace Slip39.Core
             return indices.Select(GetWord).ToArray();
         }
 
-        private static string[] LoadWords()
+        /// <summary>
+        /// Loads the wordlist from the resource embedded in this assembly.
+        /// </summary>
+        /// <remarks>
+        /// There is deliberately no filesystem fallback. Reading <c>wordlist.txt</c> from the
+        /// assembly directory meant a file dropped next to the DLL became the wordlist, with
+        /// nothing checking it was the right one. The resource is embedded by the project file,
+        /// so its absence is a build failure, not a runtime condition worth papering over.
+        /// </remarks>
+        private static ReadOnlyCollection<string> LoadWords()
         {
-            var assembly = Assembly.GetExecutingAssembly();
-            var resourceName = "Slip39.Core.wordlist.txt";
-            
-            // Try to load from embedded resource first
-            using (var stream = assembly.GetManifestResourceStream(resourceName))
-            {
-                if (stream != null)
-                {
-                    return LoadWordsFromStream(stream);
-                }
-            }
-            
-            // Fallback to file system
-            var assemblyLocation = assembly.Location;
-            var assemblyDirectory = Path.GetDirectoryName(assemblyLocation);
-            if (assemblyDirectory == null)
-            {
-                throw new InvalidOperationException("Unable to determine assembly directory for wordlist.");
-            }
-            var wordlistPath = Path.Combine(assemblyDirectory, "wordlist.txt");
-            
-            if (File.Exists(wordlistPath))
-            {
-                return LoadWordsFromFile(wordlistPath);
-            }
-            
-            throw new FileNotFoundException("Wordlist file not found. Expected embedded resource or file at: " + wordlistPath);
+            var assembly = typeof(Wordlist).Assembly;
+            const string resourceName = "Slip39.Core.wordlist.txt";
+
+            using var stream = assembly.GetManifestResourceStream(resourceName)
+                ?? throw new InvalidOperationException(
+                    $"The embedded wordlist resource '{resourceName}' is missing from assembly " +
+                    $"'{assembly.GetName().Name}'. It is embedded by Slip39.Core.csproj; a build " +
+                    "that does not contain it is broken.");
+
+            var words = ReadWords(stream);
+            VerifyWordlist(words);
+            return new ReadOnlyCollection<string>(words);
         }
 
-        private static string[] LoadWordsFromStream(Stream stream)
+        /// <summary>
+        /// Reads the wordlist format: one lowercase word per line, blank lines ignored.
+        /// </summary>
+        private static string[] ReadWords(Stream stream)
         {
-            var wordsList = new List<string>();
-            using (var reader = new StreamReader(stream))
+            var wordsList = new List<string>(WordCount);
+            using var reader = new StreamReader(stream);
+
+            string? line;
+            while ((line = reader.ReadLine()) != null)
             {
-                string? line;
-                
-                while ((line = reader.ReadLine()) != null)
+                var word = line.Trim().ToLowerInvariant();
+                if (word.Length > 0)
                 {
-                    if (string.IsNullOrWhiteSpace(line))
-                    {
-                        continue;
-                    }
-                    
-                    // Try to parse as "index|word" format first
-                    var parts = line.Split('|');
-                    if (parts.Length == 2 && int.TryParse(parts[0], out int index) && index >= 1 && index <= WordCount)
-                    {
-                        // Ensure we have enough space in the list
-                        while (wordsList.Count < index)
-                        {
-                            wordsList.Add("");
-                        }
-                        if (wordsList.Count == index)
-                        {
-                            wordsList.Add(parts[1].Trim().ToLowerInvariant());
-                        }
-                        else
-                        {
-                            wordsList[index - 1] = parts[1].Trim().ToLowerInvariant();
-                        }
-                    }
-                    else
-                    {
-                        // Assume simple word list format (one word per line)
-                        var word = line.Trim().ToLowerInvariant();
-                        if (!string.IsNullOrEmpty(word))
-                        {
-                            wordsList.Add(word);
-                        }
-                    }
-                }
-                
-                if (wordsList.Count != WordCount)
-                {
-                    throw new InvalidDataException($"Expected {WordCount} words but found {wordsList.Count}.");
+                    wordsList.Add(word);
                 }
             }
-            
+
             return wordsList.ToArray();
         }
 
-        private static string[] LoadWordsFromFile(string filePath)
+        /// <summary>
+        /// Checks that what was loaded is the SLIP-0039 wordlist, and not merely a list of 1024
+        /// strings. The structural checks come first because they name the actual problem; the
+        /// hash then settles identity, which structure alone cannot establish.
+        /// </summary>
+        /// <remarks>
+        /// The structural checks are the mechanically verifiable criteria the specification
+        /// states for the wordlist: alphabetically sorted, no word shorter than 4 or longer than
+        /// 8 letters, every word identified by a unique 4-letter prefix.
+        /// </remarks>
+        internal static void VerifyWordlist(string[] words)
         {
-            using (var stream = File.OpenRead(filePath))
+            if (words.Length != WordCount)
             {
-                return LoadWordsFromStream(stream);
+                throw new InvalidDataException($"Expected {WordCount} words but found {words.Length}.");
+            }
+
+            for (int i = 0; i < words.Length; i++)
+            {
+                if (words[i].Length < 4 || words[i].Length > 8)
+                {
+                    throw new InvalidDataException(
+                        $"Wordlist entry {i} ('{words[i]}') is not between 4 and 8 characters long.");
+                }
+
+                if (i > 0 && string.CompareOrdinal(words[i - 1], words[i]) >= 0)
+                {
+                    throw new InvalidDataException(
+                        $"Wordlist is not in strictly ascending order at index {i}: " +
+                        $"'{words[i - 1]}' is not before '{words[i]}'.");
+                }
+            }
+
+            int distinctPrefixes = words.Select(w => w[..UniquePrefixLength]).Distinct(StringComparer.Ordinal).Count();
+            if (distinctPrefixes != words.Length)
+            {
+                throw new InvalidDataException(
+                    $"Wordlist entries are not distinguished by their first {UniquePrefixLength} characters.");
+            }
+
+            // An ordinary comparison: the wordlist and its hash are both public constants, so
+            // there is no secret here for a timing side channel to leak.
+            var actualHash = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', words)))).ToLowerInvariant();
+            if (!string.Equals(actualHash, WordlistHash, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"The wordlist is well formed but is not the SLIP-0039 wordlist: expected " +
+                    $"SHA-256 {WordlistHash}, got {actualHash}.");
             }
         }
 
         private static Dictionary<string, int> CreateWordToIndexMap()
         {
-            var map = new Dictionary<string, int>(WordCount);
+            var map = new Dictionary<string, int>(WordCount, StringComparer.Ordinal);
             var words = Words;
-            
-            for (int i = 0; i < words.Length; i++)
+
+            for (int i = 0; i < words.Count; i++)
             {
-                if (!string.IsNullOrEmpty(words[i]))
-                {
-                    map[words[i]] = i;
-                }
+                // Add, not indexer assignment: a duplicate must fail loudly rather than resolve
+                // to whichever occurrence came last. VerifyWordlist rules duplicates out, so this
+                // is a second lock on the same door.
+                map.Add(words[i], i);
             }
-            
+
             return map;
         }
     }

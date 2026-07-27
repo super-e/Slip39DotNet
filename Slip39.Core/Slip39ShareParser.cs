@@ -9,17 +9,22 @@ namespace Slip39.Core;
 public static class Slip39ShareParser
 {
     /// <summary>
-    /// Parses a SLIP-0039 share from a space-separated mnemonic string.
+    /// Parses a SLIP-0039 share from a whitespace-separated mnemonic string.
     /// </summary>
-    /// <param name="mnemonic">Space-separated mnemonic words</param>
+    /// <param name="mnemonic">Mnemonic words separated by any whitespace</param>
     /// <returns>Parsed Slip39Share object</returns>
     /// <exception cref="ArgumentException">Thrown when the mnemonic format is invalid</exception>
+    /// <remarks>
+    /// Words may be separated by any whitespace, not only spaces. A share pasted out of a file,
+    /// a printed backup or a multi-line message used to fail as "Expected at least 20 words,
+    /// got 1" — an error about the share, for what was only a line break.
+    /// </remarks>
     public static Slip39Share ParseFromMnemonic(string mnemonic)
     {
         if (string.IsNullOrWhiteSpace(mnemonic))
             throw new ArgumentException("Mnemonic cannot be null or empty", nameof(mnemonic));
 
-        var words = mnemonic.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var words = mnemonic.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         return ParseFromMnemonicWords(words);
     }
 
