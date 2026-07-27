@@ -359,7 +359,7 @@ public class ProgramTests
         var header = Slip39ShareParser.ParseFromMnemonic(good[0]);
         var mixed = new List<string> { good[0], good[1] };
 
-        foreach (int i in new[] { 3, 4 })
+        mixed.AddRange(new[] { 3, 4 }.Select(i =>
         {
             var foreign = Slip39ShareParser.ParseFromMnemonic(other[i]);
             var relabelled = new Slip39Share(
@@ -367,8 +367,8 @@ public class ProgramTests
                 header.GroupIndex, header.GroupThreshold, header.GroupCount,
                 foreign.MemberIndex, header.MemberThreshold, foreign.ShareValue, 0);
 
-            mixed.Add(ForgeShareWithForeignValue(relabelled, foreign.ShareValue));
-        }
+            return ForgeShareWithForeignValue(relabelled, foreign.ShareValue);
+        }));
 
         var args = new[] { "combine", "--ignore-invalid-shares" }.Concat(mixed).ToArray();
         var result = CliRunner.Run(args);

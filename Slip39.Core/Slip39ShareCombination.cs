@@ -259,11 +259,8 @@ public static class Slip39ShareCombination
             var groupShares = group.ToList();
             int threshold = groupShares[0].ActualMemberThreshold;
 
-            foreach (var share in groupShares)
-            {
-                if (share.MemberThreshold != groupShares[0].MemberThreshold)
-                    throw new ArgumentException("All shares in the same group must have the same member threshold", nameof(shares));
-            }
+            if (groupShares.Any(s => s.MemberThreshold != groupShares[0].MemberThreshold))
+                throw new ArgumentException("All shares in the same group must have the same member threshold", nameof(shares));
 
             var memberIndices = groupShares.Select(s => s.MemberIndex).ToList();
             if (memberIndices.Count != memberIndices.Distinct().Count())
@@ -375,12 +372,13 @@ public static class Slip39ShareCombination
     private static List<(byte index, byte[] values)>? FindValidatingSubset(
         List<Slip39Share> groupShares, int threshold)
     {
-        foreach (var combination in Combinations(groupShares.Count, threshold))
-        {
-            var candidate = combination
+        var candidates = Combinations(groupShares.Count, threshold)
+            .Select(combination => combination
                 .Select(i => (groupShares[i].MemberIndex, groupShares[i].ShareValue))
-                .ToList();
+                .ToList());
 
+        foreach (var candidate in candidates)
+        {
             try
             {
                 byte[] groupSecret = PolynomialInterpolation.RecoverSecret(threshold, candidate);
