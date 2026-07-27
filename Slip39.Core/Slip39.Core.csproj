@@ -10,4 +10,10 @@
     <EmbeddedResource Include="wordlist.txt" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- So the wordlist verification can be tested against lists that are wrong. It only ever
+         sees the embedded resource in production, which is by construction correct. -->
+    <InternalsVisibleTo Include="Slip39.Core.Tests" />
+  </ItemGroup>
+
 </Project>

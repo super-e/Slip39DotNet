@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using Xunit;
 using Slip39.Core;
@@ -24,7 +25,7 @@ namespace Slip39.Core.Tests
             var words = Wordlist.Words;
 
             // Assert
-            Assert.Equal(1024, words.Length);
+            Assert.Equal(1024, words.Count);
             Assert.True(words.All(w => !string.IsNullOrEmpty(w)));
         }
 
@@ -290,6 +291,130 @@ namespace Slip39.Core.Tests
             }
         }
 
+        /// <summary>
+        /// The wordlist that ships is correct by construction, so the checks that run when it is
+        /// loaded never see anything wrong. These feed them the tampering they exist to catch.
+        /// </summary>
+        public class Verification
+        {
+            private static string[] Shipped() => Wordlist.Words.ToArray();
+
+            [Fact]
+            public void TheShippedWordlist_PassesEveryCheck()
+            {
+                Wordlist.VerifyWordlist(Shipped());
+            }
+
+            [Fact]
+            public void AWordlistOfTheWrongSize_IsRejected()
+            {
+                var truncated = Shipped().Take(1023).ToArray();
+
+                var ex = Assert.Throws<InvalidDataException>(() => Wordlist.VerifyWordlist(truncated));
+                Assert.Contains("1023", ex.Message, StringComparison.Ordinal);
+            }
+
+            [Fact]
+            public void AnUnsortedWordlist_IsRejected()
+            {
+                // Two real words in the wrong order. GetIndex uses a map, so nothing else would
+                // notice — but sorted order is what makes the list a spec-conforming wordlist.
+                var words = Shipped();
+                (words[10], words[20]) = (words[20], words[10]);
+
+                var ex = Assert.Throws<InvalidDataException>(() => Wordlist.VerifyWordlist(words));
+                Assert.Contains("ascending order", ex.Message, StringComparison.Ordinal);
+            }
+
+            [Fact]
+            public void ARepeatedWord_IsRejected()
+            {
+                // The word-to-index map used to overwrite duplicates in silence, so a list with a
+                // repeated word passed the count check while GetIndex resolved to the last one.
+                var words = Shipped();
+                words[2] = words[1];
+
+                Assert.Throws<InvalidDataException>(() => Wordlist.VerifyWordlist(words));
+            }
+
+            [Theory]
+            [InlineData("ace")]        // shorter than 4 letters
+            [InlineData("acidophile")] // longer than 8
+            public void AWordOfTheWrongLength_IsRejected(string replacement)
+            {
+                var words = Shipped();
+                words[1] = replacement;
+
+                var ex = Assert.Throws<InvalidDataException>(() => Wordlist.VerifyWordlist(words));
+                Assert.Contains("4 and 8", ex.Message, StringComparison.Ordinal);
+            }
+
+            [Fact]
+            public void TwoWordsSharingAFourLetterPrefix_AreRejected()
+            {
+                // "acidz" sorts between "acid" and "acquire", so the list is still ordered, all
+                // words are still distinct, and only the prefix rule catches it. Abbreviated
+                // entry — typing the first four letters — would be ambiguous.
+                var words = Shipped();
+                words[2] = "acidz";
+
+                var ex = Assert.Throws<InvalidDataException>(() => Wordlist.VerifyWordlist(words));
+                Assert.Contains("first 4 characters", ex.Message, StringComparison.Ordinal);
+            }
+
+            [Fact]
+            public void AWellFormedButDifferentWordlist_IsRejected()
+            {
+                // "zeta" sorts after "yoga" and before nothing, is 4 letters, and has a prefix no
+                // other word has: it satisfies every structural rule the specification states.
+                // Only the hash can tell that this is not the SLIP-0039 wordlist — which is the
+                // whole point of pinning it, since a substituted list would decode every mnemonic
+                // to something plausible and wrong.
+                var words = Shipped();
+                words[1023] = "zeta";
+
+                var ex = Assert.Throws<InvalidDataException>(() => Wordlist.VerifyWordlist(words));
+                Assert.Contains("not the SLIP-0039 wordlist", ex.Message, StringComparison.Ordinal);
+            }
+        }
+
+        [Fact]
+        public void Words_CannotBeCastBackToTheInternalArray()
+        {
+            // The property used to hand out the live array, so any code in the process could
+            // rewrite how every mnemonic encodes and decodes. Assigning to it no longer
+            // compiles; this covers the runtime half — the array cannot be recovered by a cast.
+            var words = Wordlist.Words;
+
+            Assert.Null(words as string[]);
+            Assert.IsNotType<string[]>(words);
+        }
+
+        [Fact]
+        public void Words_ShouldBeInStrictlyAscendingOrder()
+        {
+            // The list is sorted by construction, and the loader refuses anything else. Sorted
+            // order also implies the entries are distinct.
+            var words = Wordlist.Words;
+
+            for (int i = 1; i < words.Count; i++)
+            {
+                Assert.True(string.CompareOrdinal(words[i - 1], words[i]) < 0,
+                    $"'{words[i - 1]}' at {i - 1} is not before '{words[i]}' at {i}.");
+            }
+        }
+
+        [Fact]
+        public void Words_ShouldBeIdentifiedByTheirFirstFourCharacters()
+        {
+            // The SLIP-0039 wordlist is built so a word can be recognised — and typed — from its
+            // first four letters. Anything that breaks this breaks abbreviated entry.
+            var words = Wordlist.Words;
+
+            Assert.All(words, w => Assert.InRange(w.Length, 4, 8));
+            Assert.Equal(words.Count, words.Select(w => w[..4]).Distinct(StringComparer.Ordinal).Count());
+        }
+
         [Fact]
         public void Words_ShouldHaveUniqueEntries()
         {
@@ -298,7 +423,7 @@ namespace Slip39.Core.Tests
             var uniqueWords = words.Distinct().ToArray();
 
             // Assert
-            Assert.Equal(words.Length, uniqueWords.Length);
+            Assert.Equal(words.Count, uniqueWords.Length);
         }
 
         [Fact]

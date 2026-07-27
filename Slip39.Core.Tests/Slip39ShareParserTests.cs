@@ -292,6 +292,37 @@ public class Slip39ShareParserTests
     }
 
 
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    [InlineData("\t")]
+    [InlineData("  ")]
+    [InlineData(" \n\t ")]
+    public void ParseFromMnemonic_SeparatedByAnyWhitespace_ParsesTheSameShare(string separator)
+    {
+        // A share pasted out of a file, a printed backup or a multi-line message arrives with
+        // line breaks in it. Splitting on ' ' alone rejected those as "Expected at least 20
+        // words, got 1" — an error about the share, for what was only a line break.
+        const string canonical = "duckling enlarge academic academic agency result length solution fridge kidney coal piece deal husband erode duke ajar critical decision keyboard";
+        var reflowed = string.Join(separator, canonical.Split(' '));
+
+        var expected = Slip39ShareParser.ParseFromMnemonic(canonical);
+        var actual = Slip39ShareParser.ParseFromMnemonic(reflowed);
+
+        Assert.Equal(expected.ToMnemonic(), actual.ToMnemonic());
+        Assert.Equal(expected.ShareValue, actual.ShareValue);
+    }
+
+    [Fact]
+    public void ParseFromMnemonic_SurroundingWhitespace_IsIgnored()
+    {
+        const string canonical = "duckling enlarge academic academic agency result length solution fridge kidney coal piece deal husband erode duke ajar critical decision keyboard";
+
+        var actual = Slip39ShareParser.ParseFromMnemonic($"\n\t {canonical} \r\n");
+
+        Assert.Equal(canonical, actual.ToMnemonic());
+    }
+
     [Fact]
     public void ParseFromMnemonicWords_ValidWordArray_ParsesSuccessfully()
     {

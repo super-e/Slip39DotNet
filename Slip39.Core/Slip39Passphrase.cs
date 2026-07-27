@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Slip39.Core;
@@ -113,21 +114,56 @@ public static class Slip39Passphrase
     /// <param name="passphrase1">The first passphrase</param>
     /// <param name="passphrase2">The second passphrase</param>
     /// <returns>True if the passphrases are equivalent after normalization</returns>
+    /// <remarks>
+    /// The comparison is constant time with respect to the passphrase contents, and both
+    /// normalised buffers are zeroed before returning — the same treatment
+    /// <c>Slip39Encryption.Feistel</c> gives them. <c>SequenceEqual</c> returns on the first
+    /// differing byte, which tells an attacker who can time this call how much of a guess was
+    /// right.
+    /// </remarks>
     public static bool ArePassphrasesEqual(string? passphrase1, string? passphrase2)
     {
         var normalized1 = NormalizePassphrase(passphrase1);
         var normalized2 = NormalizePassphrase(passphrase2);
-        
-        return normalized1.SequenceEqual(normalized2);
+
+        try
+        {
+            return CryptographicOperations.FixedTimeEquals(normalized1, normalized2);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(normalized1);
+            CryptographicOperations.ZeroMemory(normalized2);
+        }
     }
     
     /// <summary>
     /// Estimates the entropy of a passphrase based on its character composition.
-    /// This is useful for providing feedback to users about passphrase strength.
     /// </summary>
     /// <param name="passphrase">The passphrase to analyze</param>
     /// <returns>Estimated entropy in bits</returns>
+    [Obsolete("Renamed to MaximumPassphraseEntropyBits, which says what the number is: an upper " +
+              "bound assuming every character was chosen uniformly at random. It is not an " +
+              "estimate of how hard a passphrase is to guess and must not be used to decide " +
+              "whether one is strong enough.")]
     public static double EstimatePassphraseEntropy(string? passphrase)
+        => MaximumPassphraseEntropyBits(passphrase);
+
+    /// <summary>
+    /// Returns the number of bits a passphrase of this length <em>could</em> carry, given the
+    /// character classes it draws on: <c>length × log2(alphabet size)</c>.
+    /// </summary>
+    /// <param name="passphrase">The passphrase to analyze</param>
+    /// <returns>An upper bound on the passphrase's entropy, in bits</returns>
+    /// <remarks>
+    /// This is an upper bound, and for a human-chosen passphrase a wildly loose one: it assumes
+    /// every character was drawn uniformly at random, so <c>Password1!</c> scores about 65 bits
+    /// — the same as ten random characters from the same alphabet. It measures which character
+    /// classes appear, nothing more, and cannot see a dictionary word, a keyboard walk or a
+    /// substitution. Use it to say "this passphrase cannot be stronger than N bits"; do not use
+    /// it to decide that a passphrase is good enough to protect a wallet.
+    /// </remarks>
+    public static double MaximumPassphraseEntropyBits(string? passphrase)
     {
         if (string.IsNullOrEmpty(passphrase))
             return 0.0;
@@ -178,9 +214,26 @@ public static class Slip39Passphrase
 /// <param name="NormalizedBytes">The normalized passphrase as UTF-8 bytes</param>
 /// <param name="OriginalLength">The length of the original passphrase in characters</param>
 /// <param name="NormalizedByteLength">The length of the normalized passphrase in bytes</param>
+/// <remarks>
+/// <c>Original</c> holds the passphrase itself, as a string that cannot be zeroed. Treat the whole
+/// object as secret: keep it out of logs, exception messages and crash dumps, and let it go out of
+/// scope as soon as <c>NormalizedBytes</c> has been consumed.
+/// </remarks>
 public record PassphraseInfo(
     string Original,
     byte[] NormalizedBytes,
     int OriginalLength,
     int NormalizedByteLength
-);
+)
+{
+    /// <summary>
+    /// Returns a description of the passphrase that does not contain the passphrase.
+    /// </summary>
+    /// <remarks>
+    /// The compiler-generated <c>ToString</c> of a record prints every property, so a single
+    /// <c>$"{info}"</c> in a log line or an exception message wrote the passphrase out in full.
+    /// </remarks>
+    public override string ToString() =>
+        $"PassphraseInfo {{ OriginalLength = {OriginalLength}, " +
+        $"NormalizedByteLength = {NormalizedByteLength} }}";
+}

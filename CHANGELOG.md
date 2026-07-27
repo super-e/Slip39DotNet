@@ -85,6 +85,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI**: the recovered master secret, the generated secret and the decoded BIP32 key
   material are zeroed before each command returns, honouring the ownership contract the
   library documents.
+- `GaloisField256.Power` no longer throws on large exponents. It computed
+  `log(base) * exponent` in `int` before reducing modulo 255; for a base with a large discrete
+  logarithm the product overflowed, `%` kept the sign, and the negative index threw
+  `IndexOutOfRangeException` — `Power(246, 8455448)` for instance. The exponent is now reduced
+  first, which is exact because the multiplicative group of GF(256) has order 255.
+- `Slip39ShareParser.ParseFromMnemonic` splits on any whitespace, not only `' '`. A share
+  pasted out of a file, a printed backup or a multi-line message failed with "Expected at least
+  20 words, got 1" — an error about the share, for what was only a line break.
 - `Slip39Share.ToHex()` and `Slip39ShareParser.ParseFromHex()` no longer disagree on the
   bit layout. `ToHex()` appended the share value padding while the parser expected it
   before the value, so a share exported as hex could not be read back — `ParseFromHex()`
@@ -122,6 +130,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `slip39 combine` CLI still accepts more shares than the threshold. It now verifies the
   surplus against the rest before trimming the set for recovery, and by default refuses to
   recover from a set that contradicts itself, so nothing is silently dropped.
+- **Breaking**: `Wordlist.Words` returns `IReadOnlyList<string>` instead of the live internal
+  `string[]`. It handed out the array itself, so `Wordlist.Words[0] = "PWNED"` from anywhere in
+  the process permanently changed how every mnemonic encodes and decodes — for `GetWord`,
+  `GetIndex` and every caller of both. Callers that stored it in a `string[]` will not compile;
+  indexing and enumeration are unchanged.
+- **Breaking**: the wordlist is loaded from the embedded resource only, and is verified when it
+  is loaded. The filesystem fallback meant a `wordlist.txt` dropped next to the DLL silently
+  became the wordlist, with nothing checking that it was the right one — the only test was a
+  count of 1024, and the word-to-index map overwrote duplicates in silence, so a list with a
+  repeated word passed while `GetIndex` resolved to the last occurrence. The resource is
+  embedded by the project file, so its absence is a build failure rather than a runtime
+  condition to paper over. What is loaded is now checked against the criteria the specification
+  states — 1024 entries, sorted, 4 to 8 letters, unique 4-letter prefixes — and then against the
+  SHA-256 of the wordlist itself, since being well formed does not make it the right list.
+- Removed the `index|word` branch of the wordlist reader. Its two halves disagreed on whether
+  `index` was 0- or 1-based, so the format it appeared to support could not load: the resulting
+  count tripped the 1024 check. The shipped wordlist is one word per line and never took that
+  path.
+- **Breaking**: `Slip39Passphrase.EstimatePassphraseEntropy` is `[Obsolete]` and forwards to
+  `MaximumPassphraseEntropyBits`, which is what the number always was: `length × log2(alphabet
+  size)`, an upper bound assuming every character was chosen uniformly at random. It cannot see
+  a dictionary word or a keyboard walk, so `Password1!` scored ~65 bits — the same as ten random
+  characters from the same alphabet. In a library people use to decide how to protect a wallet,
+  a name promising an entropy estimate over a number that rates a weak passphrase as strong is
+  worse than no API at all.
 - `slip39 combine --ignore-invalid-shares` recovers from the shares that do agree when some do
   not, provided a quorum survives in every group. Someone recovering under pressure should not
   be blocked by one share mis-transcribed years ago when the rest are sufficient; the shares
@@ -159,6 +192,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   debugging a hand-copied share looking for a mistyped word instead of a malformed share.
 
 ### Security
+- `PassphraseInfo.ToString()` no longer prints the passphrase. It is a `record`, so the
+  compiler-generated `ToString` printed every property: a single `$"{info}"` in a log line or an
+  exception message wrote the passphrase out in full. The override reports the two lengths and
+  nothing else, and the type now documents that it should be treated as secret — `Original`
+  holds the passphrase as a string, which cannot be zeroed.
+- `Slip39Passphrase.ArePassphrasesEqual` compares with `CryptographicOperations.FixedTimeEquals`
+  and zeroes both normalised buffers before returning. `SequenceEqual` returns on the first
+  differing byte, which tells anyone who can time the call how much of a guess was right, and
+  the buffers were left on the heap — unlike every other passphrase path in the library.
 - The secret recovery path now zeroes its intermediate key material, matching the treatment
   the generation path already received. `PolynomialInterpolation.RecoverSecret` clears the
   recovered digest, the HMAC key `R` and the expected digest, and clears the recovered

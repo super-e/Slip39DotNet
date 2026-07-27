@@ -163,8 +163,11 @@ public static class GaloisField256
             return 0; // 0 to any positive power is 0
         }
 
-        // Use logarithm properties: log(a^n) = n * log(a)
-        int logarithmProduct = (LogarithmTable[baseElement] * exponent) % 255;
+        // Use logarithm properties: log(a^n) = n * log(a).
+        // The exponent is reduced first: the multiplicative group of GF(256) has order 255, so
+        // a^n = a^(n mod 255) for a != 0. Multiplying before reducing overflowed int for large
+        // exponents — the product went negative, `%` kept the sign, and the negative index threw.
+        int logarithmProduct = (LogarithmTable[baseElement] * (exponent % 255)) % 255;
         return ExponentialTable[logarithmProduct];
     }
 
