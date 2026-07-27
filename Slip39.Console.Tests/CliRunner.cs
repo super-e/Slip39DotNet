@@ -32,12 +32,14 @@ public static class CliRunner
 {
     public static CliResult Run(params string[] args)
     {
-        var stdout = new StringWriter();
-        var stderr = new StringWriter();
+        // Declared with `using` so they are disposed when the method returns — which happens
+        // after the finally below has already pointed Console back at the real streams, so
+        // nothing can write to a disposed writer.
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
 
         var previousOut = SystemConsole.Out;
         var previousError = SystemConsole.Error;
-        var previousEncoding = SystemConsole.OutputEncoding;
 
         try
         {
@@ -51,7 +53,6 @@ public static class CliRunner
         {
             SystemConsole.SetOut(previousOut);
             SystemConsole.SetError(previousError);
-            _ = previousEncoding;
         }
     }
 }
