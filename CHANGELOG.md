@@ -130,6 +130,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `slip39 combine` CLI still accepts more shares than the threshold. It now verifies the
   surplus against the rest before trimming the set for recovery, and by default refuses to
   recover from a set that contradicts itself, so nothing is silently dropped.
+- **Breaking**: `Slip39ShareParser.ParseFromJson` validates what it reads, like the other two
+  parsers. `ParseFromMnemonic` and `ParseFromHex` both route through `ParseFromBits`, which
+  checks the field ranges and the RS1024 checksum; `ParseFromJson` returned whatever
+  `JsonSerializer.Deserialize` produced. A share round-tripped through JSON was therefore
+  trusted without any of the integrity checking the same share received as a mnemonic — a
+  checksum could be replaced with any number at all, and an identifier of 65535 was accepted,
+  after which `ShareToIndices` masked it down to 15 bits and produced a mnemonic that was wrong
+  rather than rejected. Shares hand-built or patched as JSON now have to carry a correct
+  checksum.
+- **Breaking**: `Slip39Share` can only be built through its validating constructor, and its
+  fields are `init`-only. The parameterless constructor and public setters sat beside the
+  validating constructor as an equally valid path, so `new Slip39Share { Identifier = 65535,
+  IterationExponent = 200 }` produced a share the constructor would have rejected — and
+  `System.Text.Json` took exactly that path, which is why the JSON parser had no validation to
+  bypass in the first place. `TotalIterations` returning 2,560,000 for an exponent of 200
+  (`1 << 200` shifts by `200 & 31`) was a symptom: the class documented field ranges it did not
+  maintain. The constructor now carries `[JsonConstructor]`, so deserialising goes through the
+  same checks as every other caller.
 - **Breaking**: `Wordlist.Words` returns `IReadOnlyList<string>` instead of the live internal
   `string[]`. It handed out the array itself, so `Wordlist.Words[0] = "PWNED"` from anywhere in
   the process permanently changed how every mnemonic encodes and decodes — for `GetWord`,
