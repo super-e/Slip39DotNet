@@ -136,77 +136,25 @@ public static class Slip39ShareGeneration
     
     /// <summary>
     /// Combines SLIP-0039 shares to recover the master secret.
-    /// Implements the "Combining the shares" algorithm from the specification.
     /// </summary>
     /// <param name="shares">List of shares to combine</param>
-    /// <param name="passphrase">The passphrase for decryption</param>
+    /// <param name="passphrase">The passphrase for decryption (null defaults to "TREZOR")</param>
     /// <returns>The recovered master secret</returns>
     /// <exception cref="ArgumentException">Thrown when shares are invalid</exception>
     /// <exception cref="InvalidOperationException">Thrown when combination fails</exception>
-    public static byte[] CombineShares(List<Slip39Share> shares, string passphrase)
-    {
-        if (shares == null)
-            throw new ArgumentNullException(nameof(shares));
-        
-        if (passphrase == null)
-            throw new ArgumentNullException(nameof(passphrase));
-        
-        if (shares.Count == 0)
-            throw new ArgumentException("At least one share is required");
-        
-        // Step 1: Validate shares using the comprehensive validation
-        Slip39ShareCombination.ValidateShares(shares);
-        
-        // Get common parameters from first share
-        var firstShare = shares[0];
-        ushort identifier = firstShare.Identifier;
-        bool isExtendable = firstShare.IsExtendable;
-        byte iterationExponent = firstShare.IterationExponent;
-        int groupThreshold = firstShare.ActualGroupThreshold;
-        int groupCount = firstShare.ActualGroupCount;
-        
-        // Group shares by group index
-        var sharesByGroup = shares.GroupBy(s => s.GroupIndex)
-            .ToDictionary(g => g.Key, g => g.ToList());
-        
-        // Verify we have enough groups
-        if (sharesByGroup.Count < groupThreshold)
-            throw new ArgumentException($"Insufficient groups: need {groupThreshold}, got {sharesByGroup.Count}");
-        
-        // Step 2: Recover group shares
-        var groupShareValues = new List<(byte index, byte[] value)>();
-        
-        foreach (var kvp in sharesByGroup)
-        {
-            byte groupIndex = kvp.Key;
-            var groupShares = kvp.Value;
-            
-            // Verify we have enough member shares for this group
-            int memberThreshold = groupShares[0].ActualMemberThreshold;
-            if (groupShares.Count < memberThreshold)
-                throw new ArgumentException($"Insufficient member shares for group {groupIndex}: need {memberThreshold}, got {groupShares.Count}");
-            
-            // Convert to member share format for recovery
-            var memberShareValues = groupShares.Take(memberThreshold)
-                .Select(s => (s.MemberIndex, s.ShareValue))
-                .ToList();
-            
-            // Recover the group share
-            byte[] groupShareValue = PolynomialInterpolation.RecoverSecret(memberThreshold, memberShareValues);
-            groupShareValues.Add((groupIndex, groupShareValue));
-        }
-        
-        // Step 3: Recover the encrypted master secret
-        byte[] encryptedMasterSecret = PolynomialInterpolation.RecoverSecret(groupThreshold, 
-            groupShareValues.Take(groupThreshold).ToList());
-        
-        // Step 4: Decrypt the master secret
-        byte[] masterSecret = Slip39Encryption.Decrypt(encryptedMasterSecret, passphrase, 
-            iterationExponent, identifier, isExtendable);
-        
-        return masterSecret;
-    }
-    
+    /// <remarks>
+    /// Retained only so existing callers keep compiling. This used to be a second, independent
+    /// implementation of the same algorithm, and the two drifted apart: this one never received
+    /// the key-material zeroing, iterated groups in Dictionary order rather than by group index,
+    /// and rejected a null passphrase instead of applying the "TREZOR" default. Two public
+    /// entry points for one operation differing in their security properties is a trap —
+    /// whichever a caller reaches for first is the one they get. It now forwards, so there is
+    /// one implementation to keep correct.
+    /// </remarks>
+    [Obsolete("Use Slip39ShareCombination.CombineShares instead. This overload forwards to it.")]
+    public static byte[] CombineShares(List<Slip39Share> shares, string? passphrase)
+        => Slip39ShareCombination.CombineShares(shares, passphrase);
+
     /// <summary>
     /// Calculates the proper checksum for a share according to SLIP-0039 specification.
     /// </summary>
@@ -271,69 +219,4 @@ public static class Slip39ShareGeneration
         }
     }
     
-    /// <summary>
-    /// Validates shares for the CombineShares method according to SLIP-0039 specification.
-    /// This method is deprecated - use Slip39ShareCombination.ValidateShares instead.
-    /// </summary>
-    [Obsolete("Use Slip39ShareCombination.ValidateShares instead")]
-    private static void ValidateCombineShares(List<Slip39Share> shares)
-    {
-        if (shares.Count == 0)
-            throw new ArgumentException("At least one share is required");
-        
-        var firstShare = shares[0];
-        
-        // All shares must have the same identifier, ext, e, GT, G and length
-        foreach (var share in shares)
-        {
-            if (share.Identifier != firstShare.Identifier)
-                throw new ArgumentException("All shares must have the same identifier");
-            
-            if (share.IsExtendable != firstShare.IsExtendable)
-                throw new ArgumentException("All shares must have the same extendable flag");
-            
-            if (share.IterationExponent != firstShare.IterationExponent)
-                throw new ArgumentException("All shares must have the same iteration exponent");
-            
-            if (share.GroupThreshold != firstShare.GroupThreshold)
-                throw new ArgumentException("All shares must have the same group threshold");
-            
-            if (share.GroupCount != firstShare.GroupCount)
-                throw new ArgumentException("All shares must have the same group count");
-            
-            if (share.ShareValue.Length != firstShare.ShareValue.Length)
-                throw new ArgumentException("All shares must have the same length");
-        }
-        
-        // Verify G >= GT
-        if (firstShare.ActualGroupCount < firstShare.ActualGroupThreshold)
-            throw new ArgumentException("Group count must be greater than or equal to group threshold");
-        
-        // Group shares by group index and validate
-        var sharesByGroup = shares.GroupBy(s => s.GroupIndex)
-            .ToDictionary(g => g.Key, g => g.ToList());
-        
-        foreach (var kvp in sharesByGroup)
-        {
-            var groupShares = kvp.Value;
-            
-            // All shares in the same group must have the same member threshold
-            var firstGroupShare = groupShares[0];
-            foreach (var share in groupShares)
-            {
-                if (share.MemberThreshold != firstGroupShare.MemberThreshold)
-                    throw new ArgumentException("All shares in the same group must have the same member threshold");
-            }
-            
-            // Member indices must be pairwise distinct
-            var memberIndices = groupShares.Select(s => s.MemberIndex).ToList();
-            if (memberIndices.Count != memberIndices.Distinct().Count())
-                throw new ArgumentException("Member indices within a group must be pairwise distinct");
-        }
-        
-        // Validate share value length requirements
-        int shareValueLengthBits = firstShare.ShareValue.Length * 8;
-        if (shareValueLengthBits < 128)
-            throw new ArgumentException("Share value length must be at least 128 bits");
-    }
 }
