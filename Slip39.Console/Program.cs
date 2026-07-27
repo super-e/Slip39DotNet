@@ -8,54 +8,80 @@ namespace Slip39.Console;
 
 class Program
 {
-    static void Main(string[] args)
+    /// <summary>Process exit code signalling that the command completed successfully.</summary>
+    internal const int ExitSuccess = 0;
+
+    /// <summary>Process exit code signalling that the command failed.</summary>
+    internal const int ExitFailure = 1;
+
+    static int Main(string[] args) => Run(args);
+
+    /// <summary>
+    /// Runs a single CLI invocation and returns the process exit code.
+    /// </summary>
+    /// <remarks>
+    /// Kept separate from <c>Main</c> so tests can drive the CLI in-process and observe the
+    /// exit code. Nothing here calls <see cref="Environment.Exit"/>: every command reports
+    /// success or failure through its return value, so a failing command is detectable by a
+    /// script (and by a test) rather than only by reading the message it printed.
+    /// </remarks>
+    internal static int Run(string[] args)
     {
         // If no arguments provided, show help
         if (args.Length == 0)
         {
             ShowHelp();
-            return;
+            return ExitSuccess;
         }
 
-        string command = args[0].ToLower();
+        string command = args[0].ToLowerInvariant();
 
         try
         {
             switch (command)
             {
                 case "split":
-                    HandleSplitCommand(args[1..]);
-                    break;
+                    return HandleSplitCommand(args[1..]);
                 case "combine":
-                    HandleCombineCommand(args[1..]);
-                    break;
+                    return HandleCombineCommand(args[1..]);
                 case "info":
-                    HandleInfoCommand(args[1..]);
-                    break;
+                    return HandleInfoCommand(args[1..]);
                 case "validate":
-                    HandleValidateCommand(args[1..]);
-                    break;
+                    return HandleValidateCommand(args[1..]);
                 case "generate":
-                    HandleGenerateCommand(args[1..]);
-                    break;
+                    return HandleGenerateCommand(args[1..]);
                 case "split-xpriv":
-                    HandleSplitXprivCommand(args[1..]);
-                    break;
+                    return HandleSplitXprivCommand(args[1..]);
                 case "help":
                     ShowHelp();
-                    break;
+                    return ExitSuccess;
                 default:
-                    SystemConsole.WriteLine($"Unknown command: {command}");
-                    SystemConsole.WriteLine("Use 'help' to see available commands.");
-                    Environment.Exit(1);
-                    break;
+                    SystemConsole.Error.WriteLine($"Unknown command: {command}");
+                    SystemConsole.Error.WriteLine("Use 'help' to see available commands.");
+                    return ExitFailure;
             }
         }
         catch (Exception ex)
         {
-            SystemConsole.WriteLine($"Error: {ex.Message}");
-            Environment.Exit(1);
+            SystemConsole.Error.WriteLine($"Error: {ex.Message}");
+            return ExitFailure;
         }
+    }
+
+    /// <summary>
+    /// Reports an unrecognised option and fails the command.
+    /// </summary>
+    /// <remarks>
+    /// Unknown options used to fall through the argument-parsing switch untouched, so
+    /// <c>--treshold 5</c> silently left the threshold at its default: the user asked for
+    /// 5-of-7 and got 2-of-7 with no indication anything had been ignored. A typo must never
+    /// quietly weaken the sharing parameters.
+    /// </remarks>
+    static int UnknownOption(string option, string command)
+    {
+        SystemConsole.Error.WriteLine($"Error: unknown option '{option}' for command '{command}'");
+        SystemConsole.Error.WriteLine($"Use 'slip39 {command} --help' to see the available options.");
+        return ExitFailure;
     }
 
     static void ShowHelp()
@@ -105,12 +131,12 @@ class Program
         SystemConsole.WriteLine("Use 'slip39 [command] --help' for detailed command options.");
     }
 
-    static void HandleSplitCommand(string[] args)
+    static int HandleSplitCommand(string[] args)
     {
         if (args.Length == 0 || args.Contains("--help"))
         {
             ShowSplitHelp();
-            return;
+            return ExitSuccess;
         }
 
         string? secretHex = null;
@@ -155,31 +181,34 @@ class Program
                 case "--format":
                     outputFormat = GetNextArgument(args, ref i, "--format");
                     break;
+                default:
+                    return UnknownOption(args[i], "split");
             }
         }
 
         if (string.IsNullOrEmpty(secretHex))
         {
-            SystemConsole.WriteLine("Error: --secret is required");
-            return;
+            SystemConsole.Error.WriteLine("Error: --secret is required");
+            return ExitFailure;
         }
 
+        byte[]? secret = null;
         try
         {
-            byte[] secret = Convert.FromHexString(secretHex);
-            
+            secret = Convert.FromHexString(secretHex);
+
             List<Slip39ShareGeneration.GroupConfig> parsedGroupConfigs;
-            
+
             // If groups are specified, use multi-group configuration
             if (groupConfigs.Count > 0)
             {
                 parsedGroupConfigs = ParseGroupConfigurations(groupConfigs);
-                
+
                 // Validate group threshold
                 if (groupThreshold > parsedGroupConfigs.Count)
                 {
-                    SystemConsole.WriteLine($"Error: Group threshold ({groupThreshold}) cannot exceed number of groups ({parsedGroupConfigs.Count})");
-                    return;
+                    SystemConsole.Error.WriteLine($"Error: Group threshold ({groupThreshold}) cannot exceed number of groups ({parsedGroupConfigs.Count})");
+                    return ExitFailure;
                 }
             }
             else
@@ -222,13 +251,22 @@ class Program
             SystemConsole.WriteLine();
 
             DisplayGeneratedShares(generatedShares, outputFormat);
+            return ExitSuccess;
         }
         catch (Exception ex)
         {
-            SystemConsole.WriteLine($"Error splitting secret: {ex.Message}");
+            SystemConsole.Error.WriteLine($"Error splitting secret: {ex.Message}");
+            return ExitFailure;
+        }
+        finally
+        {
+            // The secret was handed to us on the command line and lives on in the shell's
+            // history either way, but there is no reason to leave a second copy sitting in
+            // this process's heap once the shares have been produced.
+            if (secret != null) CryptographicOperations.ZeroMemory(secret);
         }
     }
-    
+
     static List<Slip39ShareGeneration.GroupConfig> ParseGroupConfigurations(List<string> groupConfigs)
     {
         var configs = new List<Slip39ShareGeneration.GroupConfig>();
@@ -314,12 +352,12 @@ class Program
         SystemConsole.WriteLine("  slip39 split --secret 1234abcd --groups \"2-of-3\" --passphrase mypass --format json");
     }
 
-    static void HandleCombineCommand(string[] args)
+    static int HandleCombineCommand(string[] args)
     {
         if (args.Length == 0 || args.Contains("--help"))
         {
             ShowCombineHelp();
-            return;
+            return ExitSuccess;
         }
 
         var shareStrings = new List<string>();
@@ -356,28 +394,30 @@ class Program
                     if (!args[i].StartsWith("--"))
                     {
                         shareStrings.Add(args[i]);
+                        break;
                     }
-                    break;
+                    return UnknownOption(args[i], "combine");
             }
         }
 
         if (shareStrings.Count == 0)
         {
-            SystemConsole.WriteLine("Error: At least one share is required");
-            return;
+            SystemConsole.Error.WriteLine("Error: At least one share is required");
+            return ExitFailure;
         }
 
+        byte[]? masterSecret = null;
         try
         {
             var shares = new List<Slip39Share>();
-            
+
             foreach (var shareString in shareStrings)
             {
                 var share = Slip39ShareParser.ParseFromMnemonic(shareString);
                 shares.Add(share);
             }
 
-            byte[] masterSecret = Slip39ShareCombination.CombineShares(shares, passphrase);
+            masterSecret = Slip39ShareCombination.CombineShares(shares, passphrase);
 
             SystemConsole.WriteLine("Successfully recovered master secret!");
             SystemConsole.WriteLine();
@@ -386,7 +426,7 @@ class Program
             SystemConsole.WriteLine($"Passphrase: {FormatPassphraseDisplay(passphrase)}");
             SystemConsole.WriteLine();
 
-            switch (outputFormat.ToLower())
+            switch (outputFormat.ToLowerInvariant())
             {
                 case "base64":
                     SystemConsole.WriteLine($"Master Secret (Base64): {Convert.ToBase64String(masterSecret)}");
@@ -419,13 +459,23 @@ class Program
                 }
                 catch (Exception ex)
                 {
-                    SystemConsole.WriteLine($"Warning: Could not generate BIP32 key: {ex.Message}");
+                    SystemConsole.Error.WriteLine($"Warning: Could not generate BIP32 key: {ex.Message}");
                 }
             }
+
+            return ExitSuccess;
         }
         catch (Exception ex)
         {
-            SystemConsole.WriteLine($"Error combining shares: {ex.Message}");
+            SystemConsole.Error.WriteLine($"Error combining shares: {ex.Message}");
+            return ExitFailure;
+        }
+        finally
+        {
+            // CombineShares hands ownership of the master secret to its caller — that is us.
+            // The library documents that the caller should clear it; being the library's own
+            // reference consumer, this is exactly where that has to be demonstrated.
+            if (masterSecret != null) CryptographicOperations.ZeroMemory(masterSecret);
         }
     }
 
@@ -449,20 +499,22 @@ class Program
         SystemConsole.WriteLine("  slip39 combine --format base64 \"share1\" \"share2\"");
     }
 
-    static void HandleInfoCommand(string[] args)
+    static int HandleInfoCommand(string[] args)
     {
         if (args.Length == 0 || args.Contains("--help"))
         {
             ShowInfoHelp();
-            return;
+            return ExitSuccess;
         }
 
-        string shareString = args[0];
+        string? shareString = null;
         string outputFormat = "text";
         bool validateChecksum = true;
 
-        // Parse additional arguments
-        for (int i = 1; i < args.Length; i++)
+        // Scan every argument rather than assuming the mnemonic is args[0]: the documented
+        // usage puts the options first ("slip39 info --format json <share>"), which used to
+        // take "--format" itself as the mnemonic and fail with a word-count error.
+        for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
             {
@@ -472,13 +524,30 @@ class Program
                 case "--no-validate":
                     validateChecksum = false;
                     break;
+                default:
+                    if (args[i].StartsWith("--"))
+                        return UnknownOption(args[i], "info");
+                    if (shareString != null)
+                    {
+                        SystemConsole.Error.WriteLine("Error: 'info' accepts a single share; quote the mnemonic so the shell passes it as one argument.");
+                        return ExitFailure;
+                    }
+                    shareString = args[i];
+                    break;
             }
+        }
+
+        if (shareString == null)
+        {
+            SystemConsole.Error.WriteLine("Error: a share mnemonic is required");
+            return ExitFailure;
         }
 
         try
         {
             var share = Slip39ShareParser.ParseFromMnemonic(shareString);
             
+            bool checksumValid = true;
             if (validateChecksum)
             {
                 try
@@ -488,11 +557,12 @@ class Program
                 }
                 catch
                 {
+                    checksumValid = false;
                     SystemConsole.WriteLine("✗ Checksum validation: FAILED\n");
                 }
             }
 
-            switch (outputFormat.ToLower())
+            switch (outputFormat.ToLowerInvariant())
             {
                 case "json":
                     SystemConsole.WriteLine(Slip39ShareParser.ToJson(share, true));
@@ -506,10 +576,13 @@ class Program
                     ShowShareInfoText(share);
                     break;
             }
+
+            return checksumValid ? ExitSuccess : ExitFailure;
         }
         catch (Exception ex)
         {
-            SystemConsole.WriteLine($"Error parsing share: {ex.Message}");
+            SystemConsole.Error.WriteLine($"Error parsing share: {ex.Message}");
+            return ExitFailure;
         }
     }
 
@@ -580,12 +653,12 @@ class Program
         SystemConsole.WriteLine("  slip39 info --no-validate \"potentially invalid share\"");
     }
 
-    static void HandleValidateCommand(string[] args)
+    static int HandleValidateCommand(string[] args)
     {
         if (args.Length == 0 || args.Contains("--help"))
         {
             ShowValidateHelp();
-            return;
+            return ExitSuccess;
         }
 
         var shareStrings = new List<string>();
@@ -603,15 +676,16 @@ class Program
                     if (!args[i].StartsWith("--"))
                     {
                         shareStrings.Add(args[i]);
+                        break;
                     }
-                    break;
+                    return UnknownOption(args[i], "validate");
             }
         }
 
         if (shareStrings.Count == 0)
         {
-            SystemConsole.WriteLine("Error: At least one share is required");
-            return;
+            SystemConsole.Error.WriteLine("Error: At least one share is required");
+            return ExitFailure;
         }
 
         int validCount = 0;
@@ -664,12 +738,11 @@ class Program
         if (validCount == totalCount)
         {
             SystemConsole.WriteLine("✓ All shares are valid!");
+            return ExitSuccess;
         }
-        else
-        {
-            SystemConsole.WriteLine("⚠ Some shares have validation issues");
-            Environment.Exit(1);
-        }
+
+        SystemConsole.WriteLine("⚠ Some shares have validation issues");
+        return ExitFailure;
     }
 
     static void ShowValidateHelp()
@@ -688,12 +761,12 @@ class Program
         SystemConsole.WriteLine("  slip39 validate --verbose \"share1\" \"share2\" \"share3\"");
     }
 
-    static void HandleGenerateCommand(string[] args)
+    static int HandleGenerateCommand(string[] args)
     {
         if (args.Length == 0 || args.Contains("--help"))
         {
             ShowGenerateHelp();
-            return;
+            return ExitSuccess;
         }
 
         int bits = 256;
@@ -738,19 +811,22 @@ class Program
                 case "--bip32":
                     showBip32 = true;
                     break;
+                default:
+                    return UnknownOption(args[i], "generate");
             }
         }
 
         if (bits != 128 && bits != 256)
         {
-            SystemConsole.WriteLine("Error: Only 128-bit and 256-bit secrets are supported");
-            return;
+            SystemConsole.Error.WriteLine("Error: Only 128-bit and 256-bit secrets are supported");
+            return ExitFailure;
         }
 
+        byte[]? secret = null;
         try
         {
             // Generate random secret
-            byte[] secret = new byte[bits / 8];
+            secret = new byte[bits / 8];
             using (var rng = RandomNumberGenerator.Create())
             {
                 rng.GetBytes(secret);
@@ -775,10 +851,10 @@ class Program
                     }
                     catch (Exception ex)
                     {
-                        SystemConsole.WriteLine($"Warning: Could not generate BIP32 key: {ex.Message}");
+                        SystemConsole.Error.WriteLine($"Warning: Could not generate BIP32 key: {ex.Message}");
                     }
                 }
-                
+
                 SystemConsole.WriteLine();
             }
 
@@ -805,19 +881,26 @@ class Program
             {
                 SystemConsole.WriteLine("Note: Use --show-secret to display the original secret for verification.");
             }
+
+            return ExitSuccess;
         }
         catch (Exception ex)
         {
-            SystemConsole.WriteLine($"Error generating shares: {ex.Message}");
+            SystemConsole.Error.WriteLine($"Error generating shares: {ex.Message}");
+            return ExitFailure;
+        }
+        finally
+        {
+            if (secret != null) CryptographicOperations.ZeroMemory(secret);
         }
     }
 
-    static void HandleSplitXprivCommand(string[] args)
+    static int HandleSplitXprivCommand(string[] args)
     {
         if (args.Length == 0 || args.Contains("--help"))
         {
             ShowSplitXprivHelp();
-            return;
+            return ExitSuccess;
         }
 
         string? xpriv = null;
@@ -866,62 +949,79 @@ class Program
                 case "--show-secret":
                     showSecret = true;
                     break;
+                default:
+                    return UnknownOption(args[i], "split-xpriv");
             }
         }
 
         if (string.IsNullOrEmpty(xpriv))
         {
-            SystemConsole.WriteLine("Error: --xpriv is required");
-            return;
+            SystemConsole.Error.WriteLine("Error: --xpriv is required");
+            return ExitFailure;
         }
+
+        byte[]? extendedKeyData = null;
+        byte[]? privateKey = null;
+        byte[]? chainCode = null;
+        byte[]? masterSecret = null;
 
         try
         {
             // Decode the BIP32 extended private key
-            byte[] extendedKeyData = Base58Check.Decode(xpriv);
-            
+            extendedKeyData = Base58Check.Decode(xpriv);
+
             // Validate BIP32 extended key format
             if (extendedKeyData.Length != 78)
             {
                 throw new ArgumentException($"Invalid extended key length: {extendedKeyData.Length} bytes. Expected 78 bytes.");
             }
-            
-            // Check version bytes (first 4 bytes) for mainnet private key (0x0488ADE4)
+
+            // Check version bytes (first 4 bytes) for mainnet private key (0x0488ADE4).
+            // This has to be fatal, not a warning: the byte offsets below are only meaningful
+            // for an extended *private* key. Given an xpub the old code carried on and printed
+            // part of the public key under the label "Private Key", then split it into shares
+            // — producing a confident-looking backup of something that cannot restore a wallet.
             var version = new byte[4];
             Array.Copy(extendedKeyData, 0, version, 0, 4);
             var expectedVersion = new byte[] { 0x04, 0x88, 0xAD, 0xE4 };
-            
+
             if (!version.SequenceEqual(expectedVersion))
             {
                 var versionHex = Convert.ToHexString(version);
-                SystemConsole.WriteLine($"Warning: Unexpected version bytes: {versionHex}. Expected 0488ADE4 for mainnet xprv.");
+                SystemConsole.Error.WriteLine($"Error: unexpected version bytes {versionHex}; expected 0488ADE4 for a mainnet xprv.");
+                SystemConsole.Error.WriteLine("Only mainnet extended private keys (xprv...) can be split by this command.");
+                return ExitFailure;
             }
-            
+
             // Extract the 32-byte private key (starts at byte 46, after 0x00 prefix at byte 45)
-            var privateKey = new byte[32];
+            privateKey = new byte[32];
             Array.Copy(extendedKeyData, 46, privateKey, 0, 32);
-            
+
             // Extract the 32-byte chain code (bytes 13-44)
-            var chainCode = new byte[32];
+            chainCode = new byte[32];
             Array.Copy(extendedKeyData, 13, chainCode, 0, 32);
-            
+
             // For proper BIP32 reconstruction, we need both the private key and chain code
             // Combine them into a 64-byte secret: private key (32) + chain code (32)
-            var masterSecret = new byte[64];
+            masterSecret = new byte[64];
             Array.Copy(privateKey, 0, masterSecret, 0, 32);
             Array.Copy(chainCode, 0, masterSecret, 32, 32);
-            
+
             SystemConsole.WriteLine($"Successfully decoded BIP32 extended private key");
-            SystemConsole.WriteLine($"Private Key: {Convert.ToHexString(privateKey).ToLowerInvariant()}");
-            SystemConsole.WriteLine($"Chain Code: {Convert.ToHexString(chainCode).ToLowerInvariant()}");
-            
+
+            // The private key and chain code are the whole wallet. Printing them by default
+            // put them in the terminal scrollback, in any `tee`, and in any recorded session
+            // of a tool whose entire purpose is to avoid exactly that. --show-secret exists
+            // for callers who genuinely want to verify the input; it now gates all of it.
             if (showSecret)
             {
+                SystemConsole.WriteLine($"Private Key: {Convert.ToHexString(privateKey).ToLowerInvariant()}");
+                SystemConsole.WriteLine($"Chain Code: {Convert.ToHexString(chainCode).ToLowerInvariant()}");
                 SystemConsole.WriteLine($"Secret to Split: {Convert.ToHexString(masterSecret).ToLowerInvariant()} (private key + chain code)");
             }
-            
+
             SystemConsole.WriteLine();
-            
+
             List<Slip39ShareGeneration.GroupConfig> parsedGroupConfigs;
             
             // If groups are specified, use multi-group configuration
@@ -932,8 +1032,8 @@ class Program
                 // Validate group threshold
                 if (groupThreshold > parsedGroupConfigs.Count)
                 {
-                    SystemConsole.WriteLine($"Error: Group threshold ({groupThreshold}) cannot exceed number of groups ({parsedGroupConfigs.Count})");
-                    return;
+                    SystemConsole.Error.WriteLine($"Error: Group threshold ({groupThreshold}) cannot exceed number of groups ({parsedGroupConfigs.Count})");
+                    return ExitFailure;
                 }
             }
             else
@@ -978,15 +1078,26 @@ class Program
             SystemConsole.WriteLine();
 
             DisplayGeneratedShares(generatedShares, outputFormat);
-            
+
             SystemConsole.WriteLine("Note: To recover the original BIP32 key, combine the shares and use the 'combine --bip32' command.");
+            return ExitSuccess;
         }
         catch (Exception ex)
         {
-            SystemConsole.WriteLine($"Error processing BIP32 extended private key: {ex.Message}");
+            SystemConsole.Error.WriteLine($"Error processing BIP32 extended private key: {ex.Message}");
+            return ExitFailure;
+        }
+        finally
+        {
+            // Every one of these holds the wallet's private key or a copy of it.
+            if (extendedKeyData != null) CryptographicOperations.ZeroMemory(extendedKeyData);
+            if (privateKey != null) CryptographicOperations.ZeroMemory(privateKey);
+            if (chainCode != null) CryptographicOperations.ZeroMemory(chainCode);
+            if (masterSecret != null) CryptographicOperations.ZeroMemory(masterSecret);
         }
     }
-    
+
+
     static void ShowSplitXprivHelp()
     {
         SystemConsole.WriteLine("Split-Xpriv Command - Split a BIP32 extended private key into SLIP-0039 shares");
@@ -1012,7 +1123,9 @@ class Program
         SystemConsole.WriteLine("  --iterations <n>    Iteration exponent 0-15 (default: 0 = 10,000 iterations)");
         SystemConsole.WriteLine("  --extendable        Generate extendable shares");
         SystemConsole.WriteLine("  --format <fmt>      Output format: text, json, hex (default: text)");
-        SystemConsole.WriteLine("  --show-secret       Display the extracted secret components\n");
+        SystemConsole.WriteLine("  --show-secret       Print the private key, chain code and combined secret.");
+        SystemConsole.WriteLine("                      Off by default: these are the wallet itself and would");
+        SystemConsole.WriteLine("                      otherwise end up in terminal scrollback and logs.\n");
         
         SystemConsole.WriteLine("Examples:");
         SystemConsole.WriteLine();
@@ -1020,10 +1133,10 @@ class Program
         SystemConsole.WriteLine("  slip39 split-xpriv --xpriv xprv9s21ZrQH... --threshold 2 --shares 3");
         SystemConsole.WriteLine();
         SystemConsole.WriteLine("  # Multi-signature wallet backup:");
-        SystemConsole.WriteLine("  slip39 split-xpriv --xprv xprv9s21ZrQH... --group-threshold 2 --groups \"2-of-3,3-of-5\"");
+        SystemConsole.WriteLine("  slip39 split-xpriv --xpriv xprv9s21ZrQH... --group-threshold 2 --groups \"2-of-3,3-of-5\"");
         SystemConsole.WriteLine();
         SystemConsole.WriteLine("  # Corporate backup with custom passphrase:");
-        SystemConsole.WriteLine("  slip39 split-xpriv --xprv xprv9s21ZrQH... --groups \"3-of-5\" --passphrase corp2024");
+        SystemConsole.WriteLine("  slip39 split-xpriv --xpriv xprv9s21ZrQH... --groups \"3-of-5\" --passphrase corp2024");
         SystemConsole.WriteLine();
         SystemConsole.WriteLine("Note: The resulting shares can be combined using 'slip39 combine --bip32' to reconstruct the original xprv.");
     }
@@ -1080,7 +1193,7 @@ class Program
 
     static string FormatShareOutput(Slip39Share share, string format)
     {
-        return format.ToLower() switch
+        return format.ToLowerInvariant() switch
         {
             "json" => Slip39ShareParser.ToJson(share),
             "hex" => share.ToHex(),
