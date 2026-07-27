@@ -462,8 +462,10 @@ public static class Slip39ShareCombination
     {
         foreach (var share in shares)
         {
-            // Convert the share to its mnemonic word representation for checksum validation
-            var shareWords = ConvertShareToWords(share);
+            // Encode the share exactly as ToMnemonic does. This used to go through a local
+            // copy of that logic; two hand-maintained copies of the share bit layout is the
+            // shape of the ToHex/ParseFromHex defect, so there is now only one.
+            var shareWords = Array.ConvertAll(Slip39ShareParser.ShareToIndices(share), i => (ushort)i);
             
             // Verify the RS1024 checksum
             if (!Rs1024Checksum.VerifyChecksum(shareWords, share.IsExtendable))
@@ -473,110 +475,6 @@ public static class Slip39ShareCombination
         }
     }
     
-    /// <summary>
-    /// Converts a share to its 10-bit word representation for checksum validation.
-    /// This must match the exact format expected by the RS1024 checksum algorithm.
-    /// Uses the same padding strategy as ShareToIndices in ShareParser for consistency.
-    /// </summary>
-    /// <param name="share">The share to convert</param>
-    /// <returns>Array of 10-bit word values representing the complete share</returns>
-    private static ushort[] ConvertShareToWords(Slip39Share share)
-    {
-        // Use the same logic as ShareParser.ShareToIndices to ensure consistency
-        // Calculate total bits needed based on SLIP-39 specification
-        // Header: 15+1+4+4+4+4+4+4 = 40 bits
-        // Share value: (length * 8) bits
-        // Checksum: 30 bits
-        int headerBits = 40;
-        int shareValueBits = share.ShareValue.Length * 8;
-        int checksumBits = 30;
-        int totalContentBits = headerBits + shareValueBits + checksumBits;
-        
-        // Calculate padding needed to align to 10-bit word boundaries
-        int wordCount = (totalContentBits + 9) / 10; // Round up to nearest 10-bit boundary
-        int totalBits = wordCount * 10;
-        int paddingBits = totalBits - totalContentBits;
-        
-        var bits = new bool[totalBits];
-        int bitIndex = 0;
-        
-        // Pack header data into bits (same order as ShareParser)
-        WriteBits(bits, ref bitIndex, share.Identifier, 15);
-        WriteBits(bits, ref bitIndex, share.IsExtendable ? 1u : 0u, 1);
-        WriteBits(bits, ref bitIndex, share.IterationExponent, 4);
-        WriteBits(bits, ref bitIndex, share.GroupIndex, 4);
-        WriteBits(bits, ref bitIndex, share.GroupThreshold, 4);
-        WriteBits(bits, ref bitIndex, share.GroupCount, 4);
-        WriteBits(bits, ref bitIndex, share.MemberIndex, 4);
-        WriteBits(bits, ref bitIndex, share.MemberThreshold, 4);
-        
-        // Add left-padding bits (should be 0s according to SLIP-39 spec)
-        // CRITICAL: Padding goes here, after header, before share value (same as ShareParser)
-        for (int i = 0; i < paddingBits; i++)
-        {
-            bits[bitIndex++] = false; // Padding bits are always 0
-        }
-        
-        // Write share value
-        foreach (var b in share.ShareValue)
-        {
-            WriteBits(bits, ref bitIndex, b, 8);
-        }
-        
-        // Write checksum
-        WriteBits(bits, ref bitIndex, share.Checksum, 30);
-        
-        // Convert bits back to word indices, then to ushort array
-        var indices = new ushort[wordCount];
-        for (int i = 0; i < wordCount; i++)
-        {
-            uint value = 0;
-            for (int j = 0; j < 10; j++)
-            {
-                if (bits[i * 10 + j])
-                {
-                    value |= (uint)(1 << (9 - j));
-                }
-            }
-            indices[i] = (ushort)value;
-        }
-        
-        return indices;
-    }
-    
-    /// <summary>
-    /// Writes bits to a bit array at the specified position.
-    /// Same implementation as in ShareParser for consistency.
-    /// </summary>
-    private static void WriteBits(bool[] bits, ref int startIndex, uint value, int bitCount)
-    {
-        for (int i = 0; i < bitCount; i++)
-        {
-            bits[startIndex + i] = (value & (1u << (bitCount - 1 - i))) != 0;
-        }
-        startIndex += bitCount;
-    }
-    
-    /// <summary>
-    /// Packs bits into a byte array at the specified bit offset.
-    /// </summary>
-    /// <param name="data">The byte array to pack into</param>
-    /// <param name="bitOffset">The current bit offset (will be updated)</param>
-    /// <param name="value">The value to pack</param>
-    /// <param name="bitCount">The number of bits to pack</param>
-    private static void PackBits(byte[] data, ref int bitOffset, uint value, int bitCount)
-    {
-        for (int i = bitCount - 1; i >= 0; i--)
-        {
-            if ((value & (1u << i)) != 0)
-            {
-                int byteIndex = bitOffset / 8;
-                int bitIndex = bitOffset % 8;
-                data[byteIndex] |= (byte)(1 << (7 - bitIndex));
-            }
-            bitOffset++;
-        }
-    }
 }
 
 /// <summary>

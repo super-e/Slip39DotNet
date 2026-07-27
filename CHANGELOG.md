@@ -42,6 +42,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI integration tests
 - Error condition and edge case testing
 - Performance and security testing
+- `Slip39ShareCombination.ValidateChecksums` now encodes shares through
+  `Slip39ShareParser.ShareToIndices` instead of a ~60-line private copy of it. Two
+  hand-maintained copies of the share bit layout is exactly the shape of the `ToHex` /
+  `ParseFromHex` defect, and a test reaching into the private copy by reflection had made the
+  duplicate harder to delete than to keep.
+- `ValidateChecksums_ValidShares_ShouldNotThrow` now validates the shares it generates. It used
+  to build them, discard them, and call `ValidateChecksums` on an empty list — which passes
+  without executing its loop body. It was parked behind a comment claiming share generation
+  "doesn't yet calculate proper checksums", which had long since stopped being true. A
+  companion test covering a corrupted share was added, since a passing-shares test alone would
+  still pass if the method accepted everything.
 - New `Slip39.Console.Tests` project covering the command line interface, which previously had
   no tests at all. The tests drive the CLI in process and assert on the exit code and on which
   stream each message goes to, not only on its wording — every CLI defect fixed in this
@@ -82,6 +93,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   trailing byte-alignment slack before parsing.
 
 ### Changed
+- `Slip39ShareGeneration.CombineShares` is now `[Obsolete]` and forwards to
+  `Slip39ShareCombination.CombineShares`. It had been a second, independent implementation of
+  the same algorithm, and the two had drifted: it never received the key-material zeroing,
+  iterated groups in `Dictionary` order rather than by group index, and threw on a null
+  passphrase instead of applying the `"TREZOR"` default. Two public entry points for one
+  operation, differing in their security properties, is a trap — whichever a caller reaches for
+  first is the one they get. Note the forwarding also makes it strict about the member
+  threshold, in line with the change below.
+- **Breaking**: removed `Rs1024Checksum.BytesToWords`, `WordsToBytes` and `BytesToWordsExact`.
+  They had no callers outside the test suite, and despite sitting on the checksum class they do
+  not produce the SLIP-0039 share layout: they pad the final 10-bit word on the right, where the
+  specification left-pads the share value. For a 128-bit value the two disagree completely
+  (`[0,274,140,836,…]` against `[0,68,547,209,…]`). A helper that looks canonical, is reachable
+  from the checksum type, and silently encodes something else is the same trap that produced the
+  `ToHex`/`ParseFromHex` defect.
+- Removed the private, `[Obsolete]` `Slip39ShareGeneration.ValidateCombineShares` and the unused
+  `Slip39ShareCombination.PackBits`. A private method marked obsolete is unreachable by
+  definition.
 - **Breaking**: `Slip39ShareCombination.CombineShares` now requires exactly the member threshold
   from each group, as SLIP-0039 requires ("their count *Mᵢ* MUST be equal to *Tᵢ*"). Passing
   more was previously accepted, and the surplus was discarded by `RecoverSecret` without ever

@@ -406,24 +406,43 @@ public class Slip39ShareCombinationTests
     [Fact]
     public void ValidateChecksums_ValidShares_ShouldNotThrow()
     {
-        // Arrange - Generate shares with valid checksums
+        // This test used to generate shares, throw them away, and call ValidateChecksums on an
+        // empty list — which passes without executing its loop body. It was parked behind a
+        // comment saying share generation "doesn't yet calculate proper checksums"; that has
+        // been true for some time now and nobody unparked it. The generated shares it already
+        // built are what it should have been asserting on.
         var masterSecret = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
         var passphrase = "test";
-        var groupConfigs = new List<Slip39ShareGeneration.GroupConfig> { new(1, 1) };
-        
-        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs, 
+        var groupConfigs = new List<Slip39ShareGeneration.GroupConfig> { new(2, 3) };
+
+        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs,
             masterSecret, passphrase, 0);
-        
-        // Skip this test since the RS1024 checksum algorithm is complex to implement correctly
-        // and the share generation doesn't yet calculate proper checksums.
-        // The infrastructure is in place, but the actual checksum calculation needs 
-        // reference vectors or a known good implementation to verify against.
-        
-        // For now, just verify the method exists and doesn't crash with empty input
-        Slip39ShareCombination.ValidateChecksums(new List<Slip39Share>());
-        
-        // TODO: Implement proper checksum calculation in share generation
-        // TODO: Add test vectors from the SLIP-0039 specification
+
+        Slip39ShareCombination.ValidateChecksums(shares);
+    }
+
+    [Fact]
+    public void ValidateChecksums_CorruptedShare_ShouldThrow()
+    {
+        var masterSecret = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+        var groupConfigs = new List<Slip39ShareGeneration.GroupConfig> { new(2, 3) };
+
+        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs,
+            masterSecret, "test", 0);
+
+        // Alter a generated share so its stored checksum no longer covers its contents. The
+        // companion test above only proves valid shares pass; without this one it would still
+        // pass if ValidateChecksums accepted everything.
+        var damaged = shares[0].ShareValue.ToArray();
+        damaged[0] ^= 0xFF;
+
+        var corrupted = new Slip39Share(
+            shares[0].Identifier, shares[0].IsExtendable, shares[0].IterationExponent,
+            shares[0].GroupIndex, shares[0].GroupThreshold, shares[0].GroupCount,
+            shares[0].MemberIndex, shares[0].MemberThreshold, damaged, shares[0].Checksum);
+
+        Assert.Throws<ArgumentException>(
+            () => Slip39ShareCombination.ValidateChecksums(new List<Slip39Share> { corrupted }));
     }
     
     [Fact]
@@ -460,48 +479,49 @@ public class Slip39ShareCombinationTests
     }
     
     [Fact]
-    public void ConvertShareToWords_ValidShare_ShouldProduceValidFormat()
+    public void ShareToIndices_ValidShare_ProducesTheExpectedWordFormat()
     {
-        // This test uses reflection to access the private ConvertShareToWords method
-        // to verify it produces the correct bit packing format
-        
-        // Arrange
+        // This used to reach into a private ConvertShareToWords by reflection. That method was
+        // a copy of Slip39ShareParser.ShareToIndices, and the reflection made the duplicate
+        // harder to delete than to keep. The copy is gone; this exercises the one encoder.
         var share = new Slip39Share(
-            identifier: 0x1234,     // 15 bits
-            isExtendable: true,      // 1 bit
-            iterationExponent: 5,    // 4 bits
-            groupIndex: 2,           // 4 bits  
-            groupThreshold: 1,       // 4 bits (encoded)
-            groupCount: 2,           // 4 bits (encoded)
-            memberIndex: 3,          // 4 bits
-            memberThreshold: 1,      // 4 bits (encoded)
+            identifier: 0x1234,       // 15 bits
+            isExtendable: true,       // 1 bit
+            iterationExponent: 5,     // 4 bits
+            groupIndex: 2,            // 4 bits
+            groupThreshold: 1,        // 4 bits (encoded)
+            groupCount: 2,            // 4 bits (encoded)
+            memberIndex: 3,           // 4 bits
+            memberThreshold: 1,       // 4 bits (encoded)
             shareValue: new byte[16], // 128 bits
-            checksum: 0x12345678     // 30 bits
+            checksum: 0x12345678      // 30 bits
         );
-        
-        // Act - Use reflection to call the private method
-        var method = typeof(Slip39ShareCombination).GetMethod(
-            "ConvertShareToWords", 
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        
-        Assert.NotNull(method); // Ensure method exists
-        
-        var words = (ushort[])method.Invoke(null, new object[] { share })!;
-        
-        // Assert
-        Assert.NotNull(words);
-        Assert.True(words.Length > 0);
-        
-        // Verify all words are valid 10-bit values
-        foreach (var word in words)
+
+        var indices = Slip39ShareParser.ShareToIndices(share);
+
+        // 40 header + 128 value + 30 checksum = 198 bits, padded to 200 = 20 words.
+        Assert.Equal(20, indices.Length);
+        Assert.All(indices, i => Assert.InRange(i, 0, 1023));
+    }
+
+    [Fact]
+    public void ValidateChecksums_AgreesWithTheEncoderUsedByToMnemonic()
+    {
+        // ValidateChecksums and ToMnemonic must encode a share identically; they now share
+        // one implementation, and this is what would catch them drifting apart again.
+        var masterSecret = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+        var groupConfigs = new List<Slip39ShareGeneration.GroupConfig> { new(2, 3) };
+
+        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs, masterSecret, "test", 0);
+
+        foreach (var share in shares)
         {
-            Assert.True(word < 1024, $"Word value {word} should be less than 1024");
+            Slip39ShareCombination.ValidateChecksums(new List<Slip39Share> { share });
+
+            // The same share must survive a round trip through its mnemonic form unchanged.
+            var reparsed = Slip39ShareParser.ParseFromMnemonic(share.ToMnemonic());
+            Assert.Equal(share.Checksum, reparsed.Checksum);
+            Assert.Equal(share.ShareValue, reparsed.ShareValue);
         }
-        
-        // The total bit length should be a multiple of 10
-        // Format: 15+1+4+4+4+4+4+4+128+padding+30 = 198+padding bits
-        // To make it multiple of 10: 200 bits total, so 2 bits of padding
-        // This should result in exactly 20 words
-        Assert.Equal(20, words.Length);
     }
 }

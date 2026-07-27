@@ -90,7 +90,7 @@ public class Slip39ShareGenerationTests
         // Don't take any from group 2 since we only need 2 groups total
 
         // Act - Combine shares
-        var recoveredSecret = Slip39ShareGeneration.CombineShares(selectedShares, passphrase);
+        var recoveredSecret = Slip39ShareCombination.CombineShares(selectedShares, passphrase);
 
         // Assert
         Assert.Equal(masterSecret, recoveredSecret);
@@ -157,11 +157,11 @@ public class Slip39ShareGenerationTests
         
         // Only take 1 share from group 0 (need 2)
         var insufficientShares = allShares.Where(s => s.GroupIndex == 0).Take(1).ToList();
-        Assert.Throws<ArgumentException>(() => Slip39ShareGeneration.CombineShares(insufficientShares, passphrase));
+        Assert.Throws<ArgumentException>(() => Slip39ShareCombination.CombineShares(insufficientShares, passphrase));
         
         // Only provide 1 group (need 2)
         var oneGroupShares = allShares.Where(s => s.GroupIndex == 0).Take(2).ToList();
-        Assert.Throws<ArgumentException>(() => Slip39ShareGeneration.CombineShares(oneGroupShares, passphrase));
+        Assert.Throws<ArgumentException>(() => Slip39ShareCombination.CombineShares(oneGroupShares, passphrase));
     }
 
     [Fact]
@@ -179,7 +179,7 @@ public class Slip39ShareGenerationTests
             masterSecret, correctPassphrase, iterationExponent);
 
         // Act
-        var recoveredWithWrongPassphrase = Slip39ShareGeneration.CombineShares(shares, wrongPassphrase);
+        var recoveredWithWrongPassphrase = Slip39ShareCombination.CombineShares(shares, wrongPassphrase);
 
         // Assert
         Assert.NotEqual(masterSecret, recoveredWithWrongPassphrase);
@@ -203,7 +203,7 @@ public class Slip39ShareGenerationTests
             Assert.Equal(e, shares[0].IterationExponent);
             
             // Verify round-trip works
-            var recovered = Slip39ShareGeneration.CombineShares(shares, passphrase);
+            var recovered = Slip39ShareCombination.CombineShares(shares, passphrase);
             Assert.Equal(masterSecret, recovered);
         }
     }
@@ -226,7 +226,7 @@ public class Slip39ShareGenerationTests
         var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs, 
             masterSecret, passphrase, 0);
         
-        var recovered = Slip39ShareGeneration.CombineShares(shares, passphrase);
+        var recovered = Slip39ShareCombination.CombineShares(shares, passphrase);
 
         // Assert
         Assert.Equal(masterSecret, recovered);
@@ -259,7 +259,7 @@ public class Slip39ShareGenerationTests
         selectedShares.AddRange(allShares.Where(s => s.GroupIndex == 1).Take(3)); // 3 from group 1
         selectedShares.AddRange(allShares.Where(s => s.GroupIndex == 2).Take(1)); // 1 from group 2
 
-        var recovered = Slip39ShareGeneration.CombineShares(selectedShares, passphrase);
+        var recovered = Slip39ShareCombination.CombineShares(selectedShares, passphrase);
 
         // Assert
         Assert.Equal(19, allShares.Count); // 5 + 7 + 1 + 6 = 19 total shares
@@ -279,7 +279,7 @@ public class Slip39ShareGenerationTests
             masterSecret, emptyPassphrase, 0);
         
         // Recovery should work with explicit TREZOR passphrase
-        var recovered = Slip39ShareGeneration.CombineShares(shares, "TREZOR");
+        var recovered = Slip39ShareCombination.CombineShares(shares, "TREZOR");
 
         // Assert
         Assert.Equal(1, shares.Count);
@@ -304,6 +304,6 @@ public class Slip39ShareGenerationTests
 
         // Act & Assert - Mix shares from different sets
         var mixedShares = new List<Slip39Share> { shares1[0], shares2[1] };
-        Assert.Throws<ArgumentException>(() => Slip39ShareGeneration.CombineShares(mixedShares, passphrase));
+        Assert.Throws<ArgumentException>(() => Slip39ShareCombination.CombineShares(mixedShares, passphrase));
     }
 }
