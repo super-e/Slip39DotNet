@@ -194,6 +194,234 @@ public class ProgramTests
         Assert.Empty(ExtractMnemonics(result.StdOut));
     }
 
+    // -------------------------------------------------- surplus shares get verified
+
+    /// <summary>
+    /// Builds a mnemonic that parses and checksums cleanly but carries the wrong share value —
+    /// what a share mis-transcribed at some earlier point looks like by the time it is typed
+    /// back in. A plain typo would be caught by RS1024; this is the case that would not be.
+    /// </summary>
+    static string ForgeShareWithForeignValue(Slip39Share template, byte[] foreignValue)
+    {
+        var draft = new Slip39Share(
+            template.Identifier, template.IsExtendable, template.IterationExponent,
+            template.GroupIndex, template.GroupThreshold, template.GroupCount,
+            template.MemberIndex, template.MemberThreshold, foreignValue, 0);
+
+        var indices = Slip39ShareParser.ShareToIndices(draft);
+        var data = indices.Take(indices.Length - 3).Select(i => (ushort)i).ToArray();
+        var words = Rs1024Checksum.GenerateChecksum(data, template.IsExtendable);
+        uint checksum = ((uint)words[0] << 20) | ((uint)words[1] << 10) | words[2];
+
+        return new Slip39Share(
+            template.Identifier, template.IsExtendable, template.IterationExponent,
+            template.GroupIndex, template.GroupThreshold, template.GroupCount,
+            template.MemberIndex, template.MemberThreshold, foreignValue, checksum).ToMnemonic();
+    }
+
+    [Fact]
+    public void Combine_MoreSharesThanTheThreshold_ChecksThemAndStillRecovers()
+    {
+        var mnemonics = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", Secret, "--threshold", "2", "--shares", "3").StdOut);
+
+        var result = CliRunner.Run("combine", mnemonics[0], mnemonics[1], mnemonics[2]);
+
+        Assert.Equal(Program.ExitSuccess, result.ExitCode);
+        Assert.Contains(Secret, result.StdOut, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("agrees with the others", result.StdOut, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Combine_SurplusShareCarryingTheWrongValue_RefusesToRecover()
+    {
+        var good = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", Secret, "--threshold", "2", "--shares", "3").StdOut);
+        var other = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", "ffeeddccbbaa99887766554433221100", "--threshold", "2", "--shares", "3").StdOut);
+
+        var template = Slip39ShareParser.ParseFromMnemonic(good[2]);
+        var foreign = Slip39ShareParser.ParseFromMnemonic(other[2]).ShareValue;
+        string forged = ForgeShareWithForeignValue(template, foreign);
+
+        // The first two shares alone would recover the secret, and the bad third one sits
+        // past the threshold — exactly the arrangement that used to report success.
+        var result = CliRunner.Run("combine", good[0], good[1], forged);
+
+        Assert.Equal(Program.ExitFailure, result.ExitCode);
+        Assert.Contains("do not agree", result.StdErr, StringComparison.Ordinal);
+        Assert.Contains($"member {template.MemberIndex}", result.StdErr, StringComparison.Ordinal);
+        Assert.DoesNotContain(Secret, result.Combined, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Combine_IgnoreInvalidShares_RecoversFromTheSoundOnes()
+    {
+        var good = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", Secret, "--threshold", "2", "--shares", "3").StdOut);
+        var other = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", "ffeeddccbbaa99887766554433221100", "--threshold", "2", "--shares", "3").StdOut);
+
+        var template = Slip39ShareParser.ParseFromMnemonic(good[2]);
+        var foreign = Slip39ShareParser.ParseFromMnemonic(other[2]).ShareValue;
+        string forged = ForgeShareWithForeignValue(template, foreign);
+
+        // Someone recovering for real should not be blocked by one bad share when the other
+        // two are sufficient.
+        var result = CliRunner.Run("combine", "--ignore-invalid-shares", good[0], good[1], forged);
+
+        Assert.Equal(Program.ExitSuccess, result.ExitCode);
+        Assert.Contains(Secret, result.StdOut, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("do not agree", result.StdOut, StringComparison.Ordinal);
+        Assert.Contains("--ignore-invalid-shares", result.StdOut, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Combine_IgnoreInvalidShares_WorksWhenTheBadShareIsFirst()
+    {
+        var good = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", Secret, "--threshold", "2", "--shares", "3").StdOut);
+        var other = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", "ffeeddccbbaa99887766554433221100", "--threshold", "2", "--shares", "3").StdOut);
+
+        var template = Slip39ShareParser.ParseFromMnemonic(good[0]);
+        var foreign = Slip39ShareParser.ParseFromMnemonic(other[0]).ShareValue;
+        string forged = ForgeShareWithForeignValue(template, foreign);
+
+        // Position must not matter: identifying the bad share relies on searching for a
+        // subset that passes the digest check, not on assuming the first ones are sound.
+        var result = CliRunner.Run("combine", "--ignore-invalid-shares", forged, good[1], good[2]);
+
+        Assert.Equal(Program.ExitSuccess, result.ExitCode);
+        Assert.Contains(Secret, result.StdOut, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Combine_DefaultRefusal_PointsAtTheFlag()
+    {
+        var good = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", Secret, "--threshold", "2", "--shares", "3").StdOut);
+        var other = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", "ffeeddccbbaa99887766554433221100", "--threshold", "2", "--shares", "3").StdOut);
+
+        var template = Slip39ShareParser.ParseFromMnemonic(good[2]);
+        var foreign = Slip39ShareParser.ParseFromMnemonic(other[2]).ShareValue;
+        string forged = ForgeShareWithForeignValue(template, foreign);
+
+        var result = CliRunner.Run("combine", good[0], good[1], forged);
+
+        Assert.Equal(Program.ExitFailure, result.ExitCode);
+        Assert.Contains("--ignore-invalid-shares", result.StdErr, StringComparison.Ordinal);
+    }
+
+    /// <summary>A share whose value has been altered, so it lies on no shared polynomial.</summary>
+    static string ForgeDamagedShare(Slip39Share template, byte marker)
+    {
+        var damaged = (byte[])template.ShareValue.Clone();
+        damaged[0] ^= marker;
+        return ForgeShareWithForeignValue(template, damaged);
+    }
+
+    [Fact]
+    public void Combine_IgnoreInvalidShares_StillFailsWhenNoQuorumSurvives()
+    {
+        var good = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", Secret, "--threshold", "3", "--shares", "5").StdOut);
+
+        // Damage three of five in a 3-of-5: only two sound shares remain, one short.
+        var forged = new List<string>();
+        for (int i = 2; i < 5; i++)
+        {
+            forged.Add(ForgeDamagedShare(Slip39ShareParser.ParseFromMnemonic(good[i]), (byte)(i + 1)));
+        }
+
+        var args = new[] { "combine", "--ignore-invalid-shares", good[0], good[1] }.Concat(forged).ToArray();
+        var result = CliRunner.Run(args);
+
+        Assert.Equal(Program.ExitFailure, result.ExitCode);
+        Assert.DoesNotContain(Secret, result.Combined, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Combine_SharesDescribingTwoDifferentSecrets_RecoversNeither()
+    {
+        const string OtherSecret = "ffeeddccbbaa99887766554433221100";
+
+        var good = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", Secret, "--threshold", "2", "--shares", "3").StdOut);
+        var other = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", OtherSecret, "--threshold", "2", "--shares", "5").StdOut);
+
+        // Two shares of one backup and two of another, relabelled to look like one set. The
+        // foreign shares keep their own member indices, so they remain genuine points on the
+        // other backup's polynomial: each pair reconstructs a secret, and they are different
+        // secrets. Choosing either would mean silently returning a secret nobody asked for.
+        var header = Slip39ShareParser.ParseFromMnemonic(good[0]);
+        var mixed = new List<string> { good[0], good[1] };
+
+        foreach (int i in new[] { 3, 4 })
+        {
+            var foreign = Slip39ShareParser.ParseFromMnemonic(other[i]);
+            var relabelled = new Slip39Share(
+                header.Identifier, header.IsExtendable, header.IterationExponent,
+                header.GroupIndex, header.GroupThreshold, header.GroupCount,
+                foreign.MemberIndex, header.MemberThreshold, foreign.ShareValue, 0);
+
+            mixed.Add(ForgeShareWithForeignValue(relabelled, foreign.ShareValue));
+        }
+
+        var args = new[] { "combine", "--ignore-invalid-shares" }.Concat(mixed).ToArray();
+        var result = CliRunner.Run(args);
+
+        Assert.Equal(Program.ExitFailure, result.ExitCode);
+        Assert.DoesNotContain(Secret, result.Combined, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(OtherSecret, result.Combined, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Validate_SharesThatAgree_SaysSo()
+    {
+        var mnemonics = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", Secret, "--threshold", "2", "--shares", "3").StdOut);
+
+        var result = CliRunner.Run("validate", mnemonics[0], mnemonics[1], mnemonics[2]);
+
+        Assert.Equal(Program.ExitSuccess, result.ExitCode);
+        Assert.Contains("agree with each other", result.StdOut, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Validate_SharesThatContradictEachOther_Fails()
+    {
+        var good = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", Secret, "--threshold", "2", "--shares", "3").StdOut);
+        var other = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", "ffeeddccbbaa99887766554433221100", "--threshold", "2", "--shares", "3").StdOut);
+
+        var template = Slip39ShareParser.ParseFromMnemonic(good[2]);
+        var foreign = Slip39ShareParser.ParseFromMnemonic(other[2]).ShareValue;
+        string forged = ForgeShareWithForeignValue(template, foreign);
+
+        // Every share passes its own checksum, so the old per-share validation said VALID.
+        var result = CliRunner.Run("validate", good[0], good[1], forged);
+
+        Assert.Contains("✓ VALID", result.StdOut, StringComparison.Ordinal);
+        Assert.Equal(Program.ExitFailure, result.ExitCode);
+        Assert.Contains("contradict each other", result.StdErr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Validate_TooFewSharesToCrossCheck_SucceedsButSaysNothingWasConfirmed()
+    {
+        var mnemonics = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", Secret, "--threshold", "3", "--shares", "5").StdOut);
+
+        var result = CliRunner.Run("validate", mnemonics[0], mnemonics[1]);
+
+        Assert.Equal(Program.ExitSuccess, result.ExitCode);
+        Assert.Contains("nothing confirms they belong together", result.StdOut, StringComparison.Ordinal);
+    }
+
     // ------------------------------------------------------------------ validate
 
     [Fact]

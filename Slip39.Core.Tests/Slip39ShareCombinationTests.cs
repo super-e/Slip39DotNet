@@ -359,9 +359,12 @@ public class Slip39ShareCombinationTests
     }
 
     [Fact]
-    public void CombineShares_ExtraShares_ShouldStillWork()
+    public void CombineShares_ExtraShares_AreRejectedRatherThanDiscarded()
     {
-        // Arrange - Provide more shares than necessary
+        // This test used to assert that surplus shares "still work". They did — by being
+        // dropped unread, which is what let a corrupt share past the threshold go unreported.
+        // SLIP-0039 requires exactly the threshold per group; VerifyShares is the supported
+        // way to check every share you hold.
         var masterSecret = new byte[16];
         var passphrase = "test";
         var groupConfigs = new List<Slip39ShareGeneration.GroupConfig>
@@ -370,14 +373,33 @@ public class Slip39ShareCombinationTests
             new(3, 5)  // Group 1: 3 of 5 shares
         };
 
-        var allShares = Slip39ShareGeneration.GenerateShares(2, groupConfigs, 
+        var allShares = Slip39ShareGeneration.GenerateShares(2, groupConfigs,
             masterSecret, passphrase, 0);
 
-        // Use all shares (more than minimum required)
-        // Act
-        var recovered = Slip39ShareCombination.CombineShares(allShares, passphrase);
+        Assert.Throws<ArgumentException>(
+            () => Slip39ShareCombination.CombineShares(allShares, passphrase));
+    }
 
-        // Assert
+    [Fact]
+    public void CombineShares_ExactThresholdFromEachGroup_Recovers()
+    {
+        var masterSecret = new byte[16];
+        var passphrase = "test";
+        var groupConfigs = new List<Slip39ShareGeneration.GroupConfig>
+        {
+            new(2, 4), // Group 0: 2 of 4 shares
+            new(3, 5)  // Group 1: 3 of 5 shares
+        };
+
+        var allShares = Slip39ShareGeneration.GenerateShares(2, groupConfigs,
+            masterSecret, passphrase, 0);
+
+        var exactly = allShares.Where(s => s.GroupIndex == 0).Take(2)
+            .Concat(allShares.Where(s => s.GroupIndex == 1).Take(3))
+            .ToList();
+
+        var recovered = Slip39ShareCombination.CombineShares(exactly, passphrase);
+
         Assert.Equal(masterSecret, recovered);
     }
     

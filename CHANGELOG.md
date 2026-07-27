@@ -82,6 +82,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   trailing byte-alignment slack before parsing.
 
 ### Changed
+- **Breaking**: `Slip39ShareCombination.CombineShares` now requires exactly the member threshold
+  from each group, as SLIP-0039 requires ("their count *Mᵢ* MUST be equal to *Tᵢ*"). Passing
+  more was previously accepted, and the surplus was discarded by `RecoverSecret` without ever
+  being examined: two good shares plus one that had rotted recovered the correct secret and
+  reported success, never mentioning the bad one. Whether corruption was noticed came down to
+  where in the list the share happened to sit — first, and the digest check caught it; last,
+  and nothing was said. The group-level equivalent of this rule (`GM == GT`) was already
+  enforced, so the two levels now behave alike.
+- The `slip39 combine` CLI still accepts more shares than the threshold. It now verifies the
+  surplus against the rest before trimming the set for recovery, and by default refuses to
+  recover from a set that contradicts itself, so nothing is silently dropped.
+- `slip39 combine --ignore-invalid-shares` recovers from the shares that do agree when some do
+  not, provided a quorum survives in every group. Someone recovering under pressure should not
+  be blocked by one share mis-transcribed years ago when the rest are sufficient; the shares
+  that were excluded are still reported, and the recovered secret is verified against its
+  SLIP-0039 digest either way.
+
+### Added
+- `Slip39ShareCombination.VerifyShares` checks every share you hold against the others in its
+  group, rather than the threshold-many that recovery consumes. It answers "is my backup still
+  intact?", which recovery alone cannot. No passphrase is needed and no secret is returned: the
+  shares of a group are points on one polynomial, so any *T* of them fix it and every remaining
+  share must land on it. The report marks each share `Consistent`, `Inconsistent` or
+  `Unverifiable`, the last for groups holding fewer shares than their threshold.
+
+  The reference subset is searched for rather than assumed. Any *T* shares agree with
+  themselves, so agreement cannot distinguish a sound subset from one fitted through corrupt
+  points — only the SLIP-0039 digest can. Taking the first *T* would therefore fit a polynomial
+  through bad data whenever a bad share came early, and flag the good shares instead. A corrupt
+  share is now named wherever it appears in the list. Where the supplied shares split into two
+  sets that each reconstruct a *different* secret, neither is chosen and the group is reported
+  as not coming from a single backup.
+- `slip39 validate` now cross-checks the shares it is given, not just each share's own
+  checksum. A valid checksum proves a mnemonic was transcribed without a typo; it says nothing
+  about whether the shares belong together, which is what someone testing an old backup wants
+  to know.
 - **Breaking**: the hexadecimal share format produced by `Slip39Share.ToHex()` and the CLI
   `--format hex` has changed to the canonical SLIP-0039 bit layout. Hex strings written by
   earlier versions encode a different bit order and will not parse; re-export affected

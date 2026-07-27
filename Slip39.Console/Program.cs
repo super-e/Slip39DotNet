@@ -364,6 +364,7 @@ class Program
         string? passphrase = null;
         string outputFormat = "hex";
         bool showBip32 = false;
+        bool ignoreInvalidShares = false;
 
         // Parse arguments
         for (int i = 0; i < args.Length; i++)
@@ -388,6 +389,9 @@ class Program
                     break;
                 case "--bip32":
                     showBip32 = true;
+                    break;
+                case "--ignore-invalid-shares":
+                    ignoreInvalidShares = true;
                     break;
                 default:
                     // If it doesn't start with --, treat as a share
@@ -417,12 +421,27 @@ class Program
                 shares.Add(share);
             }
 
-            masterSecret = Slip39ShareCombination.CombineShares(shares, passphrase);
+            // The library requires exactly the member threshold per group, as SLIP-0039 does.
+            // Handing it every share you own is a natural thing to want to do, though, so the
+            // CLI accepts a surplus and puts it to use: each extra share is checked against
+            // the others before the set is trimmed for recovery. That turns shares that were
+            // previously discarded unread into the one thing that can tell you a backup has
+            // rotted.
+            var used = SelectSharesForRecovery(shares, ignoreInvalidShares);
+            if (used == null)
+                return ExitFailure;
+
+            masterSecret = Slip39ShareCombination.CombineShares(used, passphrase);
 
             SystemConsole.WriteLine("Successfully recovered master secret!");
             SystemConsole.WriteLine();
             
-            SystemConsole.WriteLine($"Shares used: {shares.Count}");
+            // Say both numbers when they differ: recovery consumes exactly the threshold, and
+            // claiming to have "used" shares that only took part in the cross-check would
+            // overstate what the run proves about them.
+            SystemConsole.WriteLine(used.Count == shares.Count
+                ? $"Shares used: {used.Count}"
+                : $"Shares used: {used.Count} of the {shares.Count} supplied (the rest were cross-checked)");
             SystemConsole.WriteLine($"Passphrase: {FormatPassphraseDisplay(passphrase)}");
             SystemConsole.WriteLine();
 
@@ -479,6 +498,94 @@ class Program
         }
     }
 
+    /// <summary>
+    /// Decides which shares to recover from, cross-checking any surplus first.
+    /// </summary>
+    /// <param name="shares">Every share the user supplied.</param>
+    /// <param name="ignoreInvalid">
+    /// When true, shares found to disagree are dropped and recovery proceeds from the rest,
+    /// provided a quorum survives in every group.
+    /// </param>
+    /// <returns>The shares to combine, or null when a report has been printed and the command should fail.</returns>
+    /// <remarks>
+    /// Someone running this command may be recovering under pressure, and a single share that
+    /// was mis-transcribed years ago should not stand between them and their secret when the
+    /// remaining shares are sufficient. It should not pass unmentioned either — a degraded
+    /// backup is worth knowing about — so the default reports it and stops, and
+    /// --ignore-invalid-shares carries on without it.
+    /// </remarks>
+    static List<Slip39Share>? SelectSharesForRecovery(List<Slip39Share> shares, bool ignoreInvalid)
+    {
+        bool hasSurplus = shares
+            .GroupBy(s => s.GroupIndex)
+            .Any(g => g.Count() > g.First().ActualMemberThreshold);
+
+        // With no surplus there is nothing extra to check: every share is needed, and
+        // CombineShares applies the SLIP-0039 digest check to exactly this set anyway.
+        if (!hasSurplus)
+            return shares;
+
+        var report = Slip39ShareCombination.VerifyShares(shares);
+
+        SystemConsole.WriteLine($"Checked all {shares.Count} shares against each other.");
+
+        if (report.AllConsistent)
+        {
+            SystemConsole.WriteLine("✓ Every share agrees with the others in its group.");
+            SystemConsole.WriteLine();
+            return TrimToThresholds(shares);
+        }
+
+        var bad = report.Inconsistent.ToList();
+        var stream = ignoreInvalid ? SystemConsole.Out : SystemConsole.Error;
+
+        stream.WriteLine($"{(ignoreInvalid ? "⚠" : "✗")} {bad.Count} share(s) do not agree with the others in their group:");
+        foreach (var entry in bad)
+        {
+            stream.WriteLine($"    group {entry.Share.GroupIndex}, member {entry.Share.MemberIndex}: {entry.Detail}");
+        }
+        stream.WriteLine();
+
+        if (!ignoreInvalid)
+        {
+            SystemConsole.Error.WriteLine("Refusing to recover from a set that contradicts itself.");
+            SystemConsole.Error.WriteLine("Re-check the transcription of the shares listed above. If you are confident");
+            SystemConsole.Error.WriteLine("in the remaining shares, re-run with --ignore-invalid-shares to recover from");
+            SystemConsole.Error.WriteLine("those alone — the recovered secret is still verified against its digest.");
+            return null;
+        }
+
+        var badShares = bad.Select(b => b.Share).ToHashSet();
+        var usable = shares.Where(s => !badShares.Contains(s)).ToList();
+
+        // Dropping shares can take a group below its threshold, or remove it entirely.
+        foreach (var group in shares.GroupBy(s => s.GroupIndex).OrderBy(g => g.Key))
+        {
+            int threshold = group.First().ActualMemberThreshold;
+            int surviving = usable.Count(s => s.GroupIndex == group.Key);
+
+            if (surviving < threshold)
+            {
+                SystemConsole.Error.WriteLine(
+                    $"Error: group {group.Key} has only {surviving} usable share(s) left but needs {threshold}.");
+                SystemConsole.Error.WriteLine("Not enough sound shares remain to recover the secret.");
+                return null;
+            }
+        }
+
+        SystemConsole.WriteLine("Continuing without them, as requested by --ignore-invalid-shares.");
+        SystemConsole.WriteLine();
+        return TrimToThresholds(usable);
+    }
+
+    /// <summary>
+    /// Keeps exactly the member threshold from each group, which is what the library accepts.
+    /// </summary>
+    static List<Slip39Share> TrimToThresholds(List<Slip39Share> shares) =>
+        shares.GroupBy(s => s.GroupIndex)
+              .SelectMany(g => g.Take(g.First().ActualMemberThreshold))
+              .ToList();
+
     static void ShowCombineHelp()
     {
         SystemConsole.WriteLine("Combine Command - Combine SLIP-0039 shares to recover secret");
@@ -491,8 +598,16 @@ class Program
         SystemConsole.WriteLine("  --shares \"s1\" \"s2\"  List of mnemonic shares to combine");
         SystemConsole.WriteLine("  --passphrase <p>    Custom passphrase (default: TREZOR)");
         SystemConsole.WriteLine("  --format <fmt>      Output format: hex, base64, binary (default: hex)");
-        SystemConsole.WriteLine("  --bip32             Also show BIP32 master key\n");
-        
+        SystemConsole.WriteLine("  --bip32             Also show BIP32 master key");
+        SystemConsole.WriteLine("  --ignore-invalid-shares");
+        SystemConsole.WriteLine("                      Recover from the sound shares even if some disagree\n");
+
+        SystemConsole.WriteLine("Passing more shares than the threshold is allowed: the extra ones are checked");
+        SystemConsole.WriteLine("against the rest. By default recovery stops if any of them disagrees, so a");
+        SystemConsole.WriteLine("backup that has degraded does not pass unnoticed. Use --ignore-invalid-shares");
+        SystemConsole.WriteLine("to recover anyway from the shares that do agree, as long as a quorum remains;");
+        SystemConsole.WriteLine("the recovered secret is verified against its SLIP-0039 digest either way.\n");
+
         SystemConsole.WriteLine("Examples:");
         SystemConsole.WriteLine("  slip39 combine \"mild isolate academic acid...\" \"mild isolate academic agency...\"");
         SystemConsole.WriteLine("  slip39 combine --passphrase mypass --bip32 \"share1\" \"share2\"");
@@ -690,6 +805,7 @@ class Program
 
         int validCount = 0;
         int totalCount = shareStrings.Count;
+        var parsedShares = new List<Slip39Share>();
 
         SystemConsole.WriteLine($"Validating {totalCount} shares...\n");
 
@@ -704,6 +820,7 @@ class Program
                     Slip39ShareCombination.ValidateChecksums(new List<Slip39Share> { share });
                     SystemConsole.WriteLine($"Share {i + 1}: ✓ VALID");
                     validCount++;
+                    parsedShares.Add(share);
                     
                     if (verbose)
                     {
@@ -735,14 +852,57 @@ class Program
 
         SystemConsole.WriteLine($"\nValidation Summary: {validCount}/{totalCount} shares valid");
         
-        if (validCount == totalCount)
+        if (validCount != totalCount)
         {
-            SystemConsole.WriteLine("✓ All shares are valid!");
-            return ExitSuccess;
+            SystemConsole.WriteLine("⚠ Some shares have validation issues");
+            return ExitFailure;
         }
 
-        SystemConsole.WriteLine("⚠ Some shares have validation issues");
-        return ExitFailure;
+        SystemConsole.WriteLine("✓ All shares are individually valid.");
+
+        // A per-share checksum only proves each mnemonic was transcribed without a typo. It
+        // says nothing about whether the shares belong together and still reconstruct the
+        // same secret — which is the question someone checking an old backup is actually
+        // asking. Cross-check them whenever there is more than one.
+        if (parsedShares.Count < 2)
+            return ExitSuccess;
+
+        SystemConsole.WriteLine();
+        try
+        {
+            var report = Slip39ShareCombination.VerifyShares(parsedShares);
+
+            if (!report.AllConsistent)
+            {
+                SystemConsole.Error.WriteLine("✗ These shares contradict each other:");
+                foreach (var bad in report.Inconsistent)
+                {
+                    SystemConsole.Error.WriteLine(
+                        $"    group {bad.Share.GroupIndex}, member {bad.Share.MemberIndex}: {bad.Detail}");
+                }
+                return ExitFailure;
+            }
+
+            var unverifiable = report.Unverifiable.ToList();
+            if (unverifiable.Count > 0)
+            {
+                SystemConsole.WriteLine("⚠ Not enough shares to cross-check them against each other:");
+                foreach (var byGroup in unverifiable.GroupBy(u => u.Share.GroupIndex))
+                {
+                    SystemConsole.WriteLine($"    {byGroup.First().Detail}");
+                }
+                SystemConsole.WriteLine("  Each share is well-formed, but nothing confirms they belong together.");
+                return ExitSuccess;
+            }
+
+            SystemConsole.WriteLine("✓ They agree with each other and reconstruct a consistent secret.");
+            return ExitSuccess;
+        }
+        catch (ArgumentException ex)
+        {
+            SystemConsole.Error.WriteLine($"✗ These shares do not form a coherent set: {ex.Message}");
+            return ExitFailure;
+        }
     }
 
     static void ShowValidateHelp()
@@ -755,7 +915,11 @@ class Program
         
         SystemConsole.WriteLine("Optional Arguments:");
         SystemConsole.WriteLine("  --verbose         Show detailed validation information\n");
-        
+
+        SystemConsole.WriteLine("Given two or more shares, they are also cross-checked against each other.");
+        SystemConsole.WriteLine("A valid checksum only proves one mnemonic was copied without a typo; the");
+        SystemConsole.WriteLine("cross-check proves the shares still belong together.\n");
+
         SystemConsole.WriteLine("Examples:");
         SystemConsole.WriteLine("  slip39 validate \"mild isolate academic acid...\" \"mild isolate academic agency...\"");
         SystemConsole.WriteLine("  slip39 validate --verbose \"share1\" \"share2\" \"share3\"");
