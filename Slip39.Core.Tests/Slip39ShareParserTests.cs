@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using Slip39.Core;
@@ -18,8 +19,10 @@ public class Slip39ShareParserTests
 
     public Slip39ShareParserTests()
     {
-        // Create a test share with known values
-        _testShare = new Slip39Share(
+        // Create a test share with known values. The checksum is the real RS1024 checksum of
+        // the other fields: it used to be an arbitrary number, which made the fixture a share
+        // no parser would now accept — ParseFromJson included.
+        _testShare = WithValidChecksum(new Slip39Share(
             identifier: 12345,
             isExtendable: false,
             iterationExponent: 1,
@@ -29,14 +32,30 @@ public class Slip39ShareParserTests
             memberIndex: 0,
             memberThreshold: 2,
             shareValue: new byte[] { 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10 },
-            checksum: 123456789
-        );
+            checksum: 0
+        ));
 
         // Generate test hex from the share
         _testHex = _testShare.ToHex();
 
         // Generate test JSON from the share
         _testJson = Slip39ShareParser.ToJson(_testShare);
+    }
+
+    /// <summary>
+    /// Returns the same share carrying the RS1024 checksum its fields actually imply.
+    /// </summary>
+    private static Slip39Share WithValidChecksum(Slip39Share draft)
+    {
+        var indices = Slip39ShareParser.ShareToIndices(draft);
+        var data = indices.Take(indices.Length - 3).Select(i => (ushort)i).ToArray();
+        var words = Rs1024Checksum.GenerateChecksum(data, draft.IsExtendable);
+        uint checksum = ((uint)words[0] << 20) | ((uint)words[1] << 10) | words[2];
+
+        return new Slip39Share(
+            draft.Identifier, draft.IsExtendable, draft.IterationExponent,
+            draft.GroupIndex, draft.GroupThreshold, draft.GroupCount,
+            draft.MemberIndex, draft.MemberThreshold, draft.ShareValue, checksum);
     }
 
     #region Mnemonic Padding Tests
@@ -443,6 +462,85 @@ public class Slip39ShareParserTests
             shareValue: new byte[] { 0x01, 0x02 },
             checksum: 0x40000000 // > 30 bits
         ));
+    }
+
+    #endregion
+
+    #region JSON is checked the same way the other two parsers are
+
+    /// <summary>
+    /// The JSON of the fixture share, with one field replaced.
+    /// </summary>
+    private string TamperedJson(string field, string value)
+    {
+        var doc = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(_testJson)!;
+        doc[field] = JsonSerializer.Deserialize<JsonElement>(value);
+        return JsonSerializer.Serialize(doc);
+    }
+
+    [Fact]
+    public void ParseFromJson_AlteredChecksum_IsRejected()
+    {
+        // The reproduction from the issue: the checksum was accepted verbatim, whatever it was.
+        var json = TamperedJson("checksum", "12345");
+
+        var ex = Assert.Throws<ArgumentException>(() => Slip39ShareParser.ParseFromJson(json));
+        Assert.Contains("checksum", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ParseFromJson_AlteredField_IsRejectedByTheChecksum()
+    {
+        // Every field is covered by the checksum, so changing one and leaving the checksum
+        // alone is caught even though the new value is in range.
+        var json = TamperedJson("memberIndex", "3");
+
+        Assert.Throws<ArgumentException>(() => Slip39ShareParser.ParseFromJson(json));
+    }
+
+    [Theory]
+    [InlineData("identifier", "65535")]        // 16 bits, must be 15
+    [InlineData("iterationExponent", "200")]   // must be 4 bits
+    [InlineData("groupIndex", "16")]
+    [InlineData("memberThreshold", "16")]
+    [InlineData("checksum", "4294967295")]     // must be 30 bits
+    public void ParseFromJson_FieldOutOfRange_IsRejected(string field, string value)
+    {
+        // These used to be accepted: System.Text.Json built the object through the
+        // parameterless constructor and the setters, so the constructor's range checks never
+        // ran. ShareToIndices then masked the field down to its bit width, and an identifier of
+        // 65535 produced a mnemonic starting with "zero" instead of an error.
+        var json = TamperedJson(field, value);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => Slip39ShareParser.ParseFromJson(json));
+    }
+
+    [Fact]
+    public void ParseFromJson_MissingShareValue_IsRejected()
+    {
+        var doc = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(_testJson)!;
+        doc.Remove("shareValue");
+
+        var ex = Assert.Throws<ArgumentException>(
+            () => Slip39ShareParser.ParseFromJson(JsonSerializer.Serialize(doc)));
+        Assert.Contains("share value is missing", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ParseFromJson_AgreesWithTheOtherTwoParsers()
+    {
+        // The same share, read three ways, must produce the same object — and be accepted or
+        // rejected on the same terms. That equivalence is what the JSON path was missing.
+        const string mnemonic = "duckling enlarge academic academic agency result length solution fridge kidney coal piece deal husband erode duke ajar critical decision keyboard";
+        var fromMnemonic = Slip39ShareParser.ParseFromMnemonic(mnemonic);
+
+        var fromHex = Slip39ShareParser.ParseFromHex(fromMnemonic.ToHex());
+        var fromJson = Slip39ShareParser.ParseFromJson(Slip39ShareParser.ToJson(fromMnemonic));
+
+        Assert.Equal(mnemonic, fromHex.ToMnemonic());
+        Assert.Equal(mnemonic, fromJson.ToMnemonic());
+        Assert.Equal(fromMnemonic.Checksum, fromJson.Checksum);
+        Assert.Equal(fromMnemonic.ShareValue, fromJson.ShareValue);
     }
 
     #endregion

@@ -6,6 +6,15 @@ namespace Slip39.Core;
 /// Represents a SLIP-0039 share containing all the fields defined in the specification.
 /// This class can parse shares from mnemonic words and serialize to hex or JSON formats.
 /// </summary>
+/// <remarks>
+/// A share can only be built through the constructor, which enforces the field ranges the
+/// specification defines, and its fields cannot be changed afterwards. There used to be a
+/// parameterless constructor and public setters beside the validating constructor, so
+/// <c>new Slip39Share { Identifier = 65535, IterationExponent = 200 }</c> produced a share the
+/// constructor would have rejected — and <c>System.Text.Json</c> took exactly that path,
+/// which is why a share arriving as JSON was trusted without any of the checking the same
+/// share received as a mnemonic.
+/// </remarks>
 public class Slip39Share
 {
     // SLIP-0039 specification constants
@@ -17,53 +26,53 @@ public class Slip39Share
     /// Used to verify that shares belong together.
     /// </summary>
     [JsonPropertyName("identifier")]
-    public ushort Identifier { get; set; }
+    public ushort Identifier { get; init; }
 
     /// <summary>
     /// Extendable backup flag (1 bit). Indicates that the identifier is used 
     /// as salt in the encryption of the master secret when ext = 0.
     /// </summary>
     [JsonPropertyName("extendable")]
-    public bool IsExtendable { get; set; }
+    public bool IsExtendable { get; init; }
 
     /// <summary>
     /// Iteration exponent (4 bits). Indicates the total number of iterations 
     /// to be used in PBKDF2. The number of iterations is calculated as 10000×2^e.
     /// </summary>
     [JsonPropertyName("iterationExponent")]
-    public byte IterationExponent { get; set; }
+    public byte IterationExponent { get; init; }
 
     /// <summary>
     /// Group index (4 bits). The x value of the group share.
     /// </summary>
     [JsonPropertyName("groupIndex")]
-    public byte GroupIndex { get; set; }
+    public byte GroupIndex { get; init; }
 
     /// <summary>
     /// Group threshold (4 bits). Indicates how many group shares are needed 
     /// to reconstruct the master secret. The actual value is GT - 1.
     /// </summary>
     [JsonPropertyName("groupThreshold")]
-    public byte GroupThreshold { get; set; }
+    public byte GroupThreshold { get; init; }
 
     /// <summary>
     /// Group count (4 bits). The total number of groups. The actual value is G - 1.
     /// </summary>
     [JsonPropertyName("groupCount")]
-    public byte GroupCount { get; set; }
+    public byte GroupCount { get; init; }
 
     /// <summary>
     /// Member index (4 bits). The x value of the member share in the given group.
     /// </summary>
     [JsonPropertyName("memberIndex")]
-    public byte MemberIndex { get; set; }
+    public byte MemberIndex { get; init; }
 
     /// <summary>
     /// Member threshold (4 bits). Indicates how many member shares are needed 
     /// to reconstruct the group share. The actual value is T - 1.
     /// </summary>
     [JsonPropertyName("memberThreshold")]
-    public byte MemberThreshold { get; set; }
+    public byte MemberThreshold { get; init; }
 
     /// <summary>
     /// Padded share value. This corresponds to the SSS part's f_k(x) values.
@@ -71,13 +80,13 @@ public class Slip39Share
     /// the nearest multiple of 10.
     /// </summary>
     [JsonPropertyName("shareValue")]
-    public byte[] ShareValue { get; set; } = Array.Empty<byte>();
+    public byte[] ShareValue { get; init; } = Array.Empty<byte>();
 
     /// <summary>
     /// RS1024 checksum (30 bits) of the data part of the share.
     /// </summary>
     [JsonPropertyName("checksum")]
-    public uint Checksum { get; set; }
+    public uint Checksum { get; init; }
 
     /// <summary>
     /// Gets the actual group threshold value (adds 1 to the encoded value).
@@ -110,15 +119,13 @@ public class Slip39Share
     public string ChecksumCustomizationString => IsExtendable ? "shamir_extendable" : "shamir";
 
     /// <summary>
-    /// Creates a new empty SLIP-0039 share.
-    /// </summary>
-    public Slip39Share()
-    {
-    }
-
-    /// <summary>
     /// Creates a new SLIP-0039 share with the specified parameters.
     /// </summary>
+    /// <remarks>
+    /// This is the only way to build a share, and <c>System.Text.Json</c> is pointed at it by
+    /// <see cref="JsonConstructorAttribute"/> so that deserialising cannot bypass the range
+    /// checks below.
+    /// </remarks>
     /// <param name="identifier">15-bit identifier</param>
     /// <param name="isExtendable">Extendable backup flag</param>
     /// <param name="iterationExponent">Iteration exponent (0-15)</param>
@@ -129,6 +136,7 @@ public class Slip39Share
     /// <param name="memberThreshold">Member threshold - 1 (0-15)</param>
     /// <param name="shareValue">Share value bytes</param>
     /// <param name="checksum">30-bit checksum</param>
+    [JsonConstructor]
     public Slip39Share(ushort identifier, bool isExtendable, byte iterationExponent,
         byte groupIndex, byte groupThreshold, byte groupCount,
         byte memberIndex, byte memberThreshold, byte[] shareValue, uint checksum)
@@ -155,28 +163,30 @@ public class Slip39Share
         byte groupIndex, byte groupThreshold, byte groupCount,
         byte memberIndex, byte memberThreshold, uint checksum)
     {
-        if (identifier > 0x7FFF) // 15 bits
+        // The bounds live in the constants above rather than as repeated literals: the whole
+        // point of this method is that the field widths are stated once and enforced.
+        if (identifier > MAX_IDENTIFIER)
             throw new ArgumentOutOfRangeException(nameof(identifier), "Identifier must be 15 bits or less");
-        
-        if (iterationExponent > 15) // 4 bits
+
+        if (iterationExponent > MAX_4_BIT_VALUE)
             throw new ArgumentOutOfRangeException(nameof(iterationExponent), "Iteration exponent must be 4 bits or less");
-        
-        if (groupIndex > 15) // 4 bits
+
+        if (groupIndex > MAX_4_BIT_VALUE)
             throw new ArgumentOutOfRangeException(nameof(groupIndex), "Group index must be 4 bits or less");
-        
-        if (groupThreshold > 15) // 4 bits
+
+        if (groupThreshold > MAX_4_BIT_VALUE)
             throw new ArgumentOutOfRangeException(nameof(groupThreshold), "Group threshold must be 4 bits or less");
-        
-        if (groupCount > 15) // 4 bits
+
+        if (groupCount > MAX_4_BIT_VALUE)
             throw new ArgumentOutOfRangeException(nameof(groupCount), "Group count must be 4 bits or less");
-        
-        if (memberIndex > 15) // 4 bits
+
+        if (memberIndex > MAX_4_BIT_VALUE)
             throw new ArgumentOutOfRangeException(nameof(memberIndex), "Member index must be 4 bits or less");
-        
-        if (memberThreshold > 15) // 4 bits
+
+        if (memberThreshold > MAX_4_BIT_VALUE)
             throw new ArgumentOutOfRangeException(nameof(memberThreshold), "Member threshold must be 4 bits or less");
-        
-        if (checksum > 0x3FFFFFFF) // 30 bits
+
+        if (checksum > MAX_CHECKSUM)
             throw new ArgumentOutOfRangeException(nameof(checksum), "Checksum must be 30 bits or less");
     }
 

@@ -99,11 +99,23 @@ public static class Slip39ShareParser
     /// <param name="jsonString">JSON string representation</param>
     /// <returns>Parsed Slip39Share object</returns>
     /// <exception cref="ArgumentException">Thrown when the JSON format is invalid</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when a field is out of range</exception>
+    /// <remarks>
+    /// A share read from JSON is checked the same way one read from a mnemonic or from hex is:
+    /// the field ranges by the <see cref="Slip39Share"/> constructor, then the RS1024 checksum.
+    /// Neither used to happen here. <c>System.Text.Json</c> built the object through the
+    /// parameterless constructor and the property setters, so a share round-tripped through
+    /// JSON was trusted without any of the integrity checking the same share received as a
+    /// mnemonic — and <see cref="ShareToIndices"/> then masked out-of-range fields down to
+    /// their bit widths without complaint, producing a mnemonic that was wrong rather than
+    /// rejected.
+    /// </remarks>
     public static Slip39Share ParseFromJson(string jsonString)
     {
         if (string.IsNullOrWhiteSpace(jsonString))
             throw new ArgumentException("JSON string cannot be null or empty", nameof(jsonString));
 
+        Slip39Share share;
         try
         {
             var options = new JsonSerializerOptions
@@ -111,16 +123,26 @@ public static class Slip39ShareParser
                 PropertyNameCaseInsensitive = true
             };
 
-            var share = JsonSerializer.Deserialize<Slip39Share>(jsonString, options);
-            if (share == null)
-                throw new ArgumentException("Failed to deserialize JSON to Slip39Share", nameof(jsonString));
-
-            return share;
+            share = JsonSerializer.Deserialize<Slip39Share>(jsonString, options)
+                ?? throw new ArgumentException("Failed to deserialize JSON to Slip39Share", nameof(jsonString));
         }
         catch (JsonException ex)
         {
             throw new ArgumentException("Invalid JSON format", nameof(jsonString), ex);
         }
+        catch (ArgumentNullException ex)
+        {
+            // The constructor rejects a null share value; from here that means the JSON did
+            // not carry one.
+            throw new ArgumentException("Invalid JSON: the share value is missing", nameof(jsonString), ex);
+        }
+
+        if (!ValidateShareChecksum(share))
+            throw new ArgumentException(
+                "Invalid share checksum: the fields in the JSON do not agree with the checksum it carries",
+                nameof(jsonString));
+
+        return share;
     }
 
     /// <summary>
