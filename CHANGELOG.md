@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI integration tests
 - Error condition and edge case testing
 - Performance and security testing
+- New `Slip39.Console.Tests` project covering the command line interface, which previously had
+  no tests at all. The tests drive the CLI in process and assert on the exit code and on which
+  stream each message goes to, not only on its wording — every CLI defect fixed in this
+  release printed a plausible message and still exited 0.
 
 ### Documentation
 - Complete API documentation
@@ -50,6 +54,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Installation and setup guides
 
 ### Fixed
+- **CLI**: `split-xpriv` no longer prints the private key and chain code by default. Both are
+  now behind `--show-secret`, alongside the combined secret. A tool for keeping key material
+  off screens and out of logs was writing the whole wallet to stdout on every invocation.
+- **CLI**: `split-xpriv` rejects anything that is not a mainnet extended *private* key. An
+  `xpub` decodes to the same 78 bytes, so it previously passed with only a warning; the
+  command then labelled part of the public key "Private Key" and split it into shares,
+  producing a confident-looking backup that cannot restore a wallet.
+- **CLI**: every command now returns a non-zero exit code when it fails, and writes its error
+  messages to stderr instead of stdout. Failures previously exited 0, so a backup script had
+  no way to tell a successful split from a rejected one.
+- **CLI**: an unrecognised option is now an error. `split --treshold 5 --shares 7` silently
+  ignored the misspelled flag and produced a 2-of-7 split — weaker parameters than the user
+  asked for, with nothing to indicate anything had been dropped.
+- **CLI**: `info` accepts its options before the mnemonic, as its own help documents.
+  `slip39 info --format json "<share>"` used to take `--format` as the share and fail.
+- **CLI**: command and format names are matched with `ToLowerInvariant`. Under a Turkish
+  locale `INFO` lowercased to `ınfo` and no command matched.
+- **CLI**: the recovered master secret, the generated secret and the decoded BIP32 key
+  material are zeroed before each command returns, honouring the ownership contract the
+  library documents.
 - `Slip39Share.ToHex()` and `Slip39ShareParser.ParseFromHex()` no longer disagree on the
   bit layout. `ToHex()` appended the share value padding while the parser expected it
   before the value, so a share exported as hex could not be read back — `ParseFromHex()`
