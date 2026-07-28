@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -61,16 +62,8 @@ public static class Slip39Passphrase
     /// </remarks>
     public static bool IsPortablePassphrase(string? passphrase)
     {
-        if (string.IsNullOrEmpty(passphrase))
-            return true;
-
-        foreach (char c in passphrase)
-        {
-            if (c < 32 || c > 126)
-                return false;
-        }
-
-        return true;
+        // Printable ASCII is code points 32 (space) to 126 (tilde).
+        return string.IsNullOrEmpty(passphrase) || passphrase.All(c => c is >= ' ' and <= '~');
     }
     
     /// <summary>

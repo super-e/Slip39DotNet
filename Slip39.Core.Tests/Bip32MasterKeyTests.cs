@@ -35,10 +35,10 @@ public class Bip32MasterKeyTests
         var masterSecret = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
         var expected = Bip32MasterKey.GenerateMasterKey(masterSecret);
 
-#pragma warning disable CS0618 // Type or member is obsolete
-        Assert.Equal(expected, Bip32MasterKey.GenerateMasterKey(masterSecret));
-        Assert.Equal(expected, Bip32MasterKey.GenerateMasterKey(masterSecret));
-        Assert.Equal(expected, Bip32MasterKey.GenerateMasterKey(masterSecret));
+#pragma warning disable CS0618 // deliberately exercising the obsolete overload
+        Assert.Equal(expected, Bip32MasterKey.GenerateMasterKey(masterSecret, null));
+        Assert.Equal(expected, Bip32MasterKey.GenerateMasterKey(masterSecret, ""));
+        Assert.Equal(expected, Bip32MasterKey.GenerateMasterKey(masterSecret, "TREZOR"));
         Assert.Equal(expected, Bip32MasterKey.GenerateMasterKey(masterSecret, "different"));
 #pragma warning restore CS0618
     }

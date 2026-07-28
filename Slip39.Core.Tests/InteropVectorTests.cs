@@ -34,15 +34,25 @@ public class InteropVectorTests
         [property: JsonPropertyName("mnemonics")] string[] Mnemonics,
         [property: JsonPropertyName("masterSecret")] string MasterSecret);
 
+    /// <summary>
+    /// Reads the vectors that ship beside the test assembly.
+    /// </summary>
+    /// <remarks>
+    /// <c>Path.Join</c> rather than <c>Path.Combine</c>: Combine discards everything before a
+    /// rooted segment, which is never what a caller joining a directory to a file name wants.
+    /// </remarks>
+    private static List<InteropVector> LoadVectors()
+    {
+        var path = Path.Join(AppContext.BaseDirectory, "interop-vectors.json");
+        return JsonSerializer.Deserialize<List<InteropVector>>(File.ReadAllText(path))!;
+    }
+
     public static TheoryData<InteropVector> Vectors
     {
         get
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "interop-vectors.json");
-            var vectors = JsonSerializer.Deserialize<List<InteropVector>>(File.ReadAllText(path))!;
-
             var data = new TheoryData<InteropVector>();
-            foreach (var vector in vectors)
+            foreach (var vector in LoadVectors())
             {
                 data.Add(vector);
             }
@@ -72,9 +82,7 @@ public class InteropVectorTests
         // The specific regression, stated as its own test: reading a foreign no-passphrase
         // backup as though it had been made with "TREZOR" produces a different secret, and
         // nothing about the operation looks like a failure.
-        var vector = ((IEnumerable<object[]>)Vectors)
-            .Select(row => (InteropVector)row[0])
-            .First(v => v.Passphrase.Length == 0);
+        var vector = LoadVectors().First(v => v.Passphrase.Length == 0);
 
         var shares = vector.Mnemonics.Select(Slip39ShareParser.ParseFromMnemonic).ToList();
 
