@@ -40,7 +40,7 @@ public static class Slip39ShareGeneration
     /// <param name="groupThreshold">Number of groups needed to reconstruct the master secret</param>
     /// <param name="groupConfigs">Configuration for each group (thresholds and counts)</param>
     /// <param name="masterSecret">The master secret to share</param>
-    /// <param name="passphrase">The passphrase for encryption (null defaults to "TREZOR")</param>
+    /// <param name="passphrase">The passphrase for encryption (null or empty means no passphrase)</param>
     /// <param name="iterationExponent">The iteration exponent (e)</param>
     /// <param name="isExtendable">Whether to generate extendable shares (affects encryption and checksum)</param>
     /// <returns>List of generated shares</returns>
@@ -138,7 +138,7 @@ public static class Slip39ShareGeneration
     /// Combines SLIP-0039 shares to recover the master secret.
     /// </summary>
     /// <param name="shares">List of shares to combine</param>
-    /// <param name="passphrase">The passphrase for decryption (null defaults to "TREZOR")</param>
+    /// <param name="passphrase">The passphrase for decryption (null or empty means no passphrase)</param>
     /// <returns>The recovered master secret</returns>
     /// <exception cref="ArgumentException">Thrown when shares are invalid</exception>
     /// <exception cref="InvalidOperationException">Thrown when combination fails</exception>
@@ -146,7 +146,7 @@ public static class Slip39ShareGeneration
     /// Retained only so existing callers keep compiling. This used to be a second, independent
     /// implementation of the same algorithm, and the two drifted apart: this one never received
     /// the key-material zeroing, iterated groups in Dictionary order rather than by group index,
-    /// and rejected a null passphrase instead of applying the "TREZOR" default. Two public
+    /// and rejected a null passphrase instead of treating it as no passphrase. Two public
     /// entry points for one operation differing in their security properties is a trap —
     /// whichever a caller reaches for first is the one they get. It now forwards, so there is
     /// one implementation to keep correct.

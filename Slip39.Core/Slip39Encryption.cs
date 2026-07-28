@@ -16,7 +16,7 @@ public static class Slip39Encryption
     /// Encrypts a master secret using the SLIP-0039 encryption algorithm.
     /// </summary>
     /// <param name="masterSecret">The master secret to encrypt</param>
-    /// <param name="passphrase">The passphrase for encryption (null defaults to "TREZOR")</param>
+    /// <param name="passphrase">The passphrase for encryption (null or empty means no passphrase, i.e. the empty string)</param>
     /// <param name="iterationExponent">The iteration exponent (e)</param>
     /// <param name="identifier">The random identifier (id)</param>
     /// <param name="isExtendable">The extendable backup flag</param>
@@ -44,7 +44,7 @@ public static class Slip39Encryption
     /// Decrypts an encrypted master secret using the SLIP-0039 decryption algorithm.
     /// </summary>
     /// <param name="encryptedMasterSecret">The encrypted master secret to decrypt</param>
-    /// <param name="passphrase">The passphrase for decryption (null defaults to "TREZOR")</param>
+    /// <param name="passphrase">The passphrase for decryption (null or empty means no passphrase, i.e. the empty string)</param>
     /// <param name="iterationExponent">The iteration exponent (e)</param>
     /// <param name="identifier">The random identifier (id)</param>
     /// <param name="isExtendable">The extendable backup flag</param>

@@ -267,23 +267,21 @@ public class Slip39ShareGenerationTests
     }
 
     [Fact]
-    public void GenerateShares_EmptyPassphrase_ShouldUseTrezorDefault()
+    public void GenerateShares_EmptyPassphrase_MeansNoPassphrase()
     {
         // Arrange
         var masterSecret = new byte[16];
-        var emptyPassphrase = ""; // Should be treated as TREZOR default
         var groupConfigs = new List<Slip39ShareGeneration.GroupConfig> { new(1, 1) };
 
         // Act
-        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs, 
-            masterSecret, emptyPassphrase, 0);
-        
-        // Recovery should work with explicit TREZOR passphrase
-        var recovered = Slip39ShareCombination.CombineShares(shares, "TREZOR");
+        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs,
+            masterSecret, "", 0);
 
-        // Assert
-        Assert.Equal(1, shares.Count);
-        Assert.Equal(masterSecret, recovered);
+        // Assert - "" and null are the same passphrase, and it is not "TREZOR". This used to
+        // assert that shares made with "" were recovered with "TREZOR".
+        Assert.Single(shares);
+        Assert.Equal(masterSecret, Slip39ShareCombination.CombineShares(shares, null));
+        Assert.NotEqual(masterSecret, Slip39ShareCombination.CombineShares(shares, "TREZOR"));
     }
     [Fact]
     public void CombineShares_MixedSharesFromDifferentSets_ShouldThrow()

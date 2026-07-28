@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -16,24 +17,53 @@ public static class Slip39Passphrase
     /// </summary>
     /// <param name="passphrase">The raw passphrase string</param>
     /// <returns>The passphrase as UTF-8 bytes</returns>
-    /// <exception cref="ArgumentNullException">Thrown when passphrase is null</exception>
     /// <remarks>
+    /// <para>
+    /// No passphrase means the empty string, as the specification requires: "If no passphrase is
+    /// provided, an empty string SHALL be used as the passphrase." This used to substitute
+    /// <c>"TREZOR"</c> — the passphrase the specification's test vectors use — which made every
+    /// share produced without an explicit passphrase unreadable by any other SLIP-0039
+    /// implementation. Not with an error: SLIP-0039 has no way to verify a passphrase, so the
+    /// other implementation returned a different secret and reported success.
+    /// </para>
+    /// <para>
     /// Callers own the returned array and may zero it: this method must keep returning a
     /// freshly allocated buffer on every call. Caching or interning the result would let
     /// <c>Slip39Encryption.Feistel</c>, which zeroes these bytes once the round key has been
     /// derived, silently corrupt every subsequent call.
+    /// </para>
     /// </remarks>
     public static byte[] NormalizePassphrase(string? passphrase)
     {
-        // Handle null or empty passphrase as "TREZOR" default according to SLIP-0039
         if (string.IsNullOrEmpty(passphrase))
-            passphrase = "TREZOR";
-        
+            return Array.Empty<byte>();
+
         // Apply NFKD Unicode normalization as required by SLIP-0039 specification
         var normalizedPassphrase = passphrase.Normalize(NormalizationForm.FormKD);
-        
+
         // Encode as UTF-8 bytes
         return Encoding.UTF8.GetBytes(normalizedPassphrase);
+    }
+
+    /// <summary>
+    /// Reports whether a passphrase is portable across SLIP-0039 implementations.
+    /// </summary>
+    /// <param name="passphrase">The passphrase to check</param>
+    /// <returns>True if the passphrase is printable ASCII, as the specification requires</returns>
+    /// <remarks>
+    /// The specification states that "in order to achieve the best interoperability among various
+    /// operating systems and wallet implementations, the passphrase MUST be a string containing
+    /// only printable ASCII characters (code points 32-126)". Outside that range the byte
+    /// sequence depends on the encoding and the Unicode normalisation each implementation
+    /// applies — this library applies NFKD and UTF-8, the reference implementation takes the
+    /// bytes as given — so the same typed passphrase may not derive the same key elsewhere.
+    /// This library does not reject such passphrases: refusing one at recovery time would make
+    /// an existing backup unreadable. It is a warning to give at generation time.
+    /// </remarks>
+    public static bool IsPortablePassphrase(string? passphrase)
+    {
+        // Printable ASCII is code points 32 (space) to 126 (tilde).
+        return string.IsNullOrEmpty(passphrase) || passphrase.All(c => c is >= ' ' and <= '~');
     }
     
     /// <summary>
@@ -45,7 +75,7 @@ public static class Slip39Passphrase
     /// <returns>True if the passphrase is valid, false otherwise</returns>
     public static bool ValidatePassphrase(string? passphrase)
     {
-        // Null or empty passphrases default to "TREZOR" and are valid
+        // No passphrase is a valid passphrase: it means the empty string
         if (string.IsNullOrEmpty(passphrase))
             return true;
         

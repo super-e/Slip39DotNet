@@ -54,7 +54,7 @@ public static class Slip39
             // Use the correct SLIP-0039 share combination implementation
             var masterSecret = Slip39ShareCombination.CombineShares(shares, passphrase);
             
-            // Get the normalized passphrase that was actually used (null/empty becomes "TREZOR")
+            // Get the normalized passphrase that was actually used (null/empty means no passphrase)
             var normalizedPassphraseBytes = Slip39Passphrase.NormalizePassphrase(passphrase);
             var actualPassphrase = System.Text.Encoding.UTF8.GetString(normalizedPassphraseBytes);
             
@@ -78,12 +78,22 @@ public static class Slip39
     /// Generates a BIP32 extended private key from the master secret and passphrase according to SLIP-0039 specification.
     /// </summary>
     /// <param name="masterSecret">The recovered master secret</param>
-    /// <param name="passphrase">Optional passphrase for key derivation (defaults to "TREZOR")</param>
+    /// <param name="passphrase">Ignored: BIP-32 derivation takes no passphrase.</param>
     /// <returns>BIP32 extended private key in Base58Check format (xprv...)</returns>
-    public static string GenerateMasterKey(byte[] masterSecret, string? passphrase = null)
+    [Obsolete("The passphrase is not used in BIP-32 derivation. Call GenerateMasterKey(masterSecret); " +
+              "the passphrase belongs to CombineMnemonics, which produces the secret.")]
+    public static string GenerateMasterKey(byte[] masterSecret, string? passphrase)
+        => GenerateMasterKey(masterSecret);
+
+    /// <summary>
+    /// Generates a BIP32 extended private key from the master secret, used as the BIP-32 seed.
+    /// </summary>
+    /// <param name="masterSecret">The recovered master secret</param>
+    /// <returns>BIP32 extended private key in Base58Check format (xprv...)</returns>
+    public static string GenerateMasterKey(byte[] masterSecret)
     {
         // Use the proper BIP32 master key derivation implementation
-        return Bip32MasterKey.GenerateMasterKey(masterSecret, passphrase);
+        return Bip32MasterKey.GenerateMasterKey(masterSecret);
     }
 }
 

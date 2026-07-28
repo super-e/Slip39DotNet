@@ -33,14 +33,13 @@ public class Slip39MainClassTests
     }
 
     [Fact]
-    public void CombineMnemonics_NoPassphrase_ShouldUseTrezorDefault()
+    public void CombineMnemonics_NoPassphrase_MeansTheEmptyPassphrase()
     {
-        // Arrange
+        // Arrange - shares made with no passphrase, as SLIP-0039 defines it
         var masterSecret = new byte[16];
-        var trezorPassphrase = "TREZOR"; // SLIP-0039 default
         var groupConfigs = new List<Slip39ShareGeneration.GroupConfig> { new(1, 1) };
 
-        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs, masterSecret, trezorPassphrase, 0);
+        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs, masterSecret, null, 0);
         var mnemonics = shares.Select(s => s.ToMnemonic()).ToArray();
 
         // Act
@@ -49,7 +48,25 @@ public class Slip39MainClassTests
         // Assert
         Assert.True(result.IsSuccess);
         Assert.Equal(masterSecret, result.MasterSecret);
-        Assert.Equal("TREZOR", result.Passphrase); // Should default to TREZOR
+        Assert.Equal("", result.Passphrase);
+    }
+
+    [Fact]
+    public void CombineMnemonics_NoPassphrase_DoesNotSubstituteTrezor()
+    {
+        // The specification's test vectors use "TREZOR", and this library used to treat that
+        // as the default for "no passphrase". Shares made that way are unreadable by any other
+        // SLIP-0039 implementation — and not with an error, since nothing can verify a
+        // passphrase: the other implementation returns a different secret and reports success.
+        var masterSecret = new byte[16];
+        var groupConfigs = new List<Slip39ShareGeneration.GroupConfig> { new(1, 1) };
+        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs, masterSecret, "TREZOR", 0);
+        var mnemonics = shares.Select(s => s.ToMnemonic()).ToArray();
+
+        var result = Slip39.CombineMnemonics(mnemonics); // no passphrase
+
+        Assert.True(result.IsSuccess);                     // it "succeeds" — that is the danger
+        Assert.NotEqual(masterSecret, result.MasterSecret); // with the wrong secret
     }
 
     [Fact]
@@ -107,12 +124,12 @@ public class Slip39MainClassTests
     }
 
     [Fact]
-    public void CombineMnemonics_NullPassphrase_ShouldUseTrezorDefault()
+    public void CombineMnemonics_NullPassphrase_MeansTheEmptyPassphrase()
     {
         // Arrange
         var masterSecret = new byte[16];
         var groupConfigs = new List<Slip39ShareGeneration.GroupConfig> { new(1, 1) };
-        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs, masterSecret, "TREZOR", 0);
+        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs, masterSecret, "", 0);
         var mnemonics = shares.Select(s => s.ToMnemonic()).ToArray();
 
         // Act
@@ -121,7 +138,7 @@ public class Slip39MainClassTests
         // Assert
         Assert.True(result.IsSuccess);
         Assert.Equal(masterSecret, result.MasterSecret);
-        Assert.Equal("TREZOR", result.Passphrase); // Should default to TREZOR
+        Assert.Equal("", result.Passphrase);
     }
 
     [Fact]
@@ -327,15 +344,15 @@ public class Slip39MainClassTests
         var masterSecret = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
         var groupConfigs = new List<Slip39ShareGeneration.GroupConfig> { new(1, 1) };
         
-        // Generate shares with TREZOR passphrase (default for empty)
-        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs, 
-            masterSecret, "TREZOR", 0);
+        // Generate shares with an explicitly empty passphrase
+        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs,
+            masterSecret, "", 0);
         var mnemonics = shares.Select(s => s.ToMnemonic()).ToArray();
-        
-        // Act - Combine with null passphrase (should default to TREZOR)
+
+        // Act - Combine with a null passphrase
         var result = Slip39.CombineMnemonics(mnemonics, null!);
-        
-        // Assert - Should work because null and empty passphrases both default to TREZOR
+
+        // Assert - null and "" are the same passphrase: none
         Assert.True(result.IsSuccess);
         Assert.Equal(masterSecret, result.MasterSecret);
     }
