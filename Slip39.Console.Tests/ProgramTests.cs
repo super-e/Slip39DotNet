@@ -449,4 +449,107 @@ public class ProgramTests
 
         Assert.Equal(Program.ExitFailure, result.ExitCode);
     }
+
+    // -------------------------------------------------- interoperability
+
+    [Fact]
+    public void Combine_NoPassphrase_DoesNotSilentlySubstituteTrezor()
+    {
+        // SLIP-0039: no passphrase means the empty string. This tool used to substitute
+        // "TREZOR", so shares it produced by default were unreadable by any other
+        // implementation — and not with an error, since nothing can verify a passphrase.
+        var mnemonics = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", Secret, "--threshold", "2", "--shares", "3").StdOut);
+
+        var withoutFlag = CliRunner.Run("combine", mnemonics[0], mnemonics[1]);
+        var underTrezor = CliRunner.Run("combine", "--passphrase", "TREZOR", mnemonics[0], mnemonics[1]);
+
+        Assert.Equal(Program.ExitSuccess, withoutFlag.ExitCode);
+        Assert.Contains(Secret, withoutFlag.StdOut, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(Secret, underTrezor.StdOut, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Passphrase: (none)", withoutFlag.StdOut, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Combine_NoPassphrase_MentionsTheOldTrezorDefault()
+    {
+        // The one warning that can exist for a backup made by an earlier version of this tool:
+        // there is no way to detect it, so all the tool can do is say what to try.
+        var mnemonics = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", Secret, "--threshold", "2", "--shares", "3").StdOut);
+
+        var result = CliRunner.Run("combine", mnemonics[0], mnemonics[1]);
+
+        Assert.Contains("--passphrase TREZOR", result.StdOut, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Split_NonAsciiPassphrase_WarnsThatItMayNotTravel()
+    {
+        var result = CliRunner.Run("split", "--secret", Secret, "--threshold", "2", "--shares", "3",
+            "--passphrase", "caffè");
+
+        Assert.Equal(Program.ExitSuccess, result.ExitCode);
+        Assert.Contains("printable ASCII", result.StdErr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Split_AsciiPassphrase_DoesNotWarn()
+    {
+        var result = CliRunner.Run("split", "--secret", Secret, "--threshold", "2", "--shares", "3",
+            "--passphrase", "coffee");
+
+        Assert.DoesNotContain("printable ASCII", result.StdErr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CombineBip32_SixtyFourByteSecret_ReadsItAsASeedAndSaysSo()
+    {
+        // A 512-bit secret is a legal BIP-32 master seed, and SLIP-0039 says a BIP-32 backup
+        // MUST contain the seed. This used to assume any 64-byte secret came from split-xpriv
+        // and reassemble it as a private key and chain code, producing the wrong wallet in
+        // silence for a spec-conforming backup.
+        const string Seed512 =
+            "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff" +
+            "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100";
+        var mnemonics = ExtractMnemonics(
+            CliRunner.Run("split", "--secret", Seed512, "--threshold", "2", "--shares", "3").StdOut);
+
+        var result = CliRunner.Run("combine", "--bip32", mnemonics[0], mnemonics[1]);
+
+        Assert.Equal(Program.ExitSuccess, result.ExitCode);
+        Assert.Contains("BIP32 Master Key: xprv", result.StdOut, StringComparison.Ordinal);
+        Assert.DoesNotContain("Reconstructed BIP32", result.StdOut, StringComparison.Ordinal);
+        // The ambiguity is inherent, so the other reading has to be named.
+        Assert.Contains("--reconstruct-xpriv", result.StdOut, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SplitXpriv_RoundTripsThroughReconstructXpriv()
+    {
+        const string Xpriv = "xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi";
+        var split = CliRunner.Run("split-xpriv", "--xpriv", Xpriv, "--threshold", "2", "--shares", "3");
+        var mnemonics = ExtractMnemonics(split.StdOut);
+
+        var result = CliRunner.Run("combine", "--bip32", "--reconstruct-xpriv", mnemonics[0], mnemonics[1]);
+
+        Assert.Equal(Program.ExitSuccess, result.ExitCode);
+        Assert.Contains(Xpriv, result.StdOut, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SplitXpriv_WarnsThatItIsNotAPortableBackup()
+    {
+        // The shares are valid SLIP-0039 and any implementation recovers the same 64 bytes —
+        // but another wallet will read them as a seed and derive a different wallet. The seed
+        // cannot be recovered from an xprv, so the command cannot be made conformant; it can
+        // only say so.
+        const string Xpriv = "xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi";
+
+        var result = CliRunner.Run("split-xpriv", "--xpriv", Xpriv, "--threshold", "2", "--shares", "3");
+
+        Assert.Equal(Program.ExitSuccess, result.ExitCode);
+        Assert.Contains("not a portable BIP-32 backup", result.StdErr, StringComparison.Ordinal);
+        Assert.Contains("--reconstruct-xpriv", result.StdErr, StringComparison.Ordinal);
+    }
 }

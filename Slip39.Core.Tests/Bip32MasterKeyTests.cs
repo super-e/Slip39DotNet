@@ -16,7 +16,7 @@ public class Bip32MasterKeyTests
         var passphrase = "TREZOR";
 
         // Act
-        var result = Bip32MasterKey.GenerateMasterKey(masterSecret, passphrase);
+        var result = Bip32MasterKey.GenerateMasterKey(masterSecret);
 
         // Assert
         Assert.NotNull(result);
@@ -25,45 +25,22 @@ public class Bip32MasterKeyTests
     }
 
     [Fact]
-    public void GenerateMasterKey_NullPassphrase_ShouldUseTrezorDefault()
+    public void GenerateMasterKey_ObsoleteOverload_IgnoresItsPassphrase()
     {
-        // Arrange
+        // BIP-32 derivation is HMAC-SHA512("Bitcoin seed", seed) and takes no passphrase. The
+        // overload that accepts one has never used it, which is why it is obsolete: in
+        // SLIP-0039 the passphrase is consumed earlier, decrypting the master secret. Three
+        // tests used to assert this behaviour under names claiming a "TREZOR default"; the
+        // behaviour is worth one test, stated plainly.
         var masterSecret = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+        var expected = Bip32MasterKey.GenerateMasterKey(masterSecret);
 
-        // Act
-        var result1 = Bip32MasterKey.GenerateMasterKey(masterSecret, null);
-        var result2 = Bip32MasterKey.GenerateMasterKey(masterSecret, "TREZOR");
-
-        // Assert
-        Assert.Equal(result2, result1); // Should be identical
-    }
-
-    [Fact]
-    public void GenerateMasterKey_EmptyPassphrase_ShouldUseTrezorDefault()
-    {
-        // Arrange
-        var masterSecret = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
-
-        // Act
-        var result1 = Bip32MasterKey.GenerateMasterKey(masterSecret, "");
-        var result2 = Bip32MasterKey.GenerateMasterKey(masterSecret, "TREZOR");
-
-        // Assert
-        Assert.Equal(result2, result1); // Should be identical
-    }
-
-    [Fact]
-    public void GenerateMasterKey_DifferentPassphrases_ShouldProduceSameKeys()
-    {
-        // Arrange
-        var masterSecret = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
-
-        // Act
-        var result1 = Bip32MasterKey.GenerateMasterKey(masterSecret, "TREZOR");
-        var result2 = Bip32MasterKey.GenerateMasterKey(masterSecret, "different");
-
-        // Assert - Passphrase doesn't affect BIP32 derivation since it's already used in SLIP-0039 decryption
-        Assert.Equal(result1, result2);
+#pragma warning disable CS0618 // Type or member is obsolete
+        Assert.Equal(expected, Bip32MasterKey.GenerateMasterKey(masterSecret));
+        Assert.Equal(expected, Bip32MasterKey.GenerateMasterKey(masterSecret));
+        Assert.Equal(expected, Bip32MasterKey.GenerateMasterKey(masterSecret));
+        Assert.Equal(expected, Bip32MasterKey.GenerateMasterKey(masterSecret, "different"));
+#pragma warning restore CS0618
     }
 
     [Fact]
@@ -75,8 +52,8 @@ public class Bip32MasterKeyTests
         var passphrase = "TREZOR";
 
         // Act
-        var result1 = Bip32MasterKey.GenerateMasterKey(masterSecret1, passphrase);
-        var result2 = Bip32MasterKey.GenerateMasterKey(masterSecret2, passphrase);
+        var result1 = Bip32MasterKey.GenerateMasterKey(masterSecret1);
+        var result2 = Bip32MasterKey.GenerateMasterKey(masterSecret2);
 
         // Assert
         Assert.NotEqual(result1, result2);
@@ -93,8 +70,8 @@ public class Bip32MasterKeyTests
         var passphrase = "test passphrase";
 
         // Act
-        var result1 = Bip32MasterKey.GenerateMasterKey(masterSecret, passphrase);
-        var result2 = Bip32MasterKey.GenerateMasterKey(masterSecret, passphrase);
+        var result1 = Bip32MasterKey.GenerateMasterKey(masterSecret);
+        var result2 = Bip32MasterKey.GenerateMasterKey(masterSecret);
 
         // Assert
         Assert.Equal(result1, result2); // Should be deterministic
@@ -105,7 +82,7 @@ public class Bip32MasterKeyTests
     {
         // Act & Assert
         Assert.Throws<ArgumentNullException>(() => 
-            Bip32MasterKey.GenerateMasterKey(null!, "TREZOR"));
+            Bip32MasterKey.GenerateMasterKey(null!));
     }
 
     [Fact]
@@ -192,7 +169,7 @@ public class Bip32MasterKeyTests
             masterSecret[i] = (byte)(i % 256);
 
         // Act
-        var result = Bip32MasterKey.GenerateMasterKey(masterSecret, "TREZOR");
+        var result = Bip32MasterKey.GenerateMasterKey(masterSecret);
 
         // Assert
         Assert.NotNull(result);
@@ -203,36 +180,7 @@ public class Bip32MasterKeyTests
         Assert.Equal(78, decoded.Length); // BIP32 extended key is always 78 bytes
     }
 
-    [Fact]
-    public void GenerateMasterKey_UnicodePassphrase_ShouldWork()
-    {
-        // Arrange
-        var masterSecret = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
-        var unicodePassphrase = "Тест🔐"; // Cyrillic + emoji
 
-        // Act
-        var result = Bip32MasterKey.GenerateMasterKey(masterSecret, unicodePassphrase);
-
-        // Assert
-        Assert.NotNull(result);
-        Assert.StartsWith("xprv", result);
-    }
-
-    [Fact]
-    public void GenerateMasterKey_PassphraseNormalization_ShouldWork()
-    {
-        // Arrange
-        var masterSecret = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
-        var passphrase1 = "e\u0301"; // 'e' with combining acute accent
-        var passphrase2 = "é";     // single character é (normalized form)
-
-        // Act
-        var result1 = Bip32MasterKey.GenerateMasterKey(masterSecret, passphrase1);
-        var result2 = Bip32MasterKey.GenerateMasterKey(masterSecret, passphrase2);
-
-        // Assert
-        Assert.Equal(result1, result2); // Should be identical after normalization
-    }
 
     [Fact]
     public void XprivRoundTrip_SplitAndCombine_ShouldRecoverOriginalKey()

@@ -28,7 +28,7 @@ public class Bip32DebugTests
             Console.WriteLine($"Master Secret length: {result.MasterSecret.Length} bytes");
             
             // Step 2: Generate master key
-            var actualMasterKey = Slip39.GenerateMasterKey(result.MasterSecret, "TREZOR");
+            var actualMasterKey = Slip39.GenerateMasterKey(result.MasterSecret);
             Console.WriteLine($"Actual:   {actualMasterKey}");
             
             // Step 3: Compare byte by byte after Base58Check decode

@@ -93,7 +93,7 @@ public class Slip39ReferenceVectorTests
         var result = Slip39.CombineMnemonics(testVector.Mnemonics, "TREZOR");
         Assert.True(result.IsSuccess, $"Failed to combine mnemonics for test: {testVector.Description}");
 
-        var masterKey = Slip39.GenerateMasterKey(result.MasterSecret, result.Passphrase ?? "TREZOR");
+        var masterKey = Slip39.GenerateMasterKey(result.MasterSecret);
 
         // Assert
         Assert.Equal(testVector.ExpectedMasterKey, masterKey);

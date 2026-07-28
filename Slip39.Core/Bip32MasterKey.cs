@@ -21,15 +21,32 @@ public static class Bip32MasterKey
     /// Generates a BIP32 extended private key from a SLIP-0039 master secret according to the specification.
     /// </summary>
     /// <param name="masterSecret">The master secret recovered from SLIP-0039 shares</param>
-    /// <param name="passphrase">Optional passphrase (null or empty means no passphrase)</param>
+    /// <param name="passphrase">Ignored. See the remarks.</param>
     /// <returns>Base58Check encoded BIP32 extended private key (xprv...)</returns>
-    public static string GenerateMasterKey(byte[] masterSecret, string? passphrase = null)
+    /// <remarks>
+    /// The passphrase argument has never been used and cannot be: BIP-32 master key derivation
+    /// is <c>HMAC-SHA512("Bitcoin seed", seed)</c> and takes no passphrase. In SLIP-0039 the
+    /// passphrase is consumed earlier, decrypting the master secret — pass a different one and
+    /// you get a different secret, and therefore a different key, from <c>CombineShares</c>. A
+    /// parameter that looks like it changes the result and does not is worth removing rather
+    /// than documenting, so this overload is obsolete.
+    /// </remarks>
+    [Obsolete("The passphrase is not used in BIP-32 derivation. Call GenerateMasterKey(masterSecret); " +
+              "the passphrase belongs to Slip39ShareCombination.CombineShares, which produces the secret.")]
+    public static string GenerateMasterKey(byte[] masterSecret, string? passphrase)
+        => GenerateMasterKey(masterSecret);
+
+    /// <summary>
+    /// Generates a BIP32 extended private key from a SLIP-0039 master secret according to the specification.
+    /// </summary>
+    /// <param name="masterSecret">The master secret, used as the BIP-32 master seed</param>
+    /// <returns>Base58Check encoded BIP32 extended private key (xprv...)</returns>
+    public static string GenerateMasterKey(byte[] masterSecret)
     {
         if (masterSecret == null)
             throw new ArgumentNullException(nameof(masterSecret));
         
-        // Use master secret directly as seed for BIP32 derivation.
-        // The passphrase was already consumed during SLIP-0039 decryption.
+        // The master secret is the BIP-32 master seed.
         byte[]? hash = null;
         byte[]? privateKey = null;
         byte[]? chainCode = null;

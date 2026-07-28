@@ -63,7 +63,7 @@ dotnet run -- split --secret <hex> [options]
   - Examples: "2-of-3" or "2-of-3,3-of-5,1-of-1"
 
 **Common Options:**
-- `--passphrase <p>` - Custom passphrase (default: TREZOR)
+- `--passphrase <p>` - Passphrase (default: none, as SLIP-0039 requires)
 - `--iterations <n>` - Iteration exponent 0-15 (default: 0)
 - `--extendable` - Generate extendable shares
 - `--format <fmt>` - Output format: text, json, hex (default: text)
@@ -102,6 +102,14 @@ Takes the same grouping, passphrase, iteration and format options as `split`, pl
 - `--xpriv <xprv...>` - BIP32 extended private key (required)
 - `--show-secret` - Print the private key, chain code and combined secret
 
+These shares are **not a portable BIP-32 backup.** SLIP-0039 requires one to contain the BIP-32
+master *seed*, and an xprv does not contain it, so what is split here is the private key and chain
+code. The shares are valid SLIP-0039 and any implementation recovers the same 64 bytes — but
+another wallet reads them as a seed and derives a different wallet, without reporting an error.
+The seed cannot be recovered from an xprv, so this command cannot be made conformant. If you still
+have the master seed, back that up with `slip39 split` instead. Recover these shares with
+`slip39 combine --bip32 --reconstruct-xpriv`.
+
 `--show-secret` is **off by default**. Those three values are the wallet itself; printing them on
 every invocation put them in terminal scrollback, shell history and any logs capturing stdout.
 
@@ -118,8 +126,9 @@ dotnet run -- split-xpriv --xpriv xprv9s21ZrQH... --threshold 2 --shares 3
 dotnet run -- split-xpriv --xpriv xprv9s21ZrQH... --group-threshold 2 --groups "2-of-3,3-of-5" --passphrase corp2024
 ```
 
-The resulting shares are recombined with `slip39 combine --bip32`, which reconstructs the original
-xprv.
+The resulting shares are recombined with `slip39 combine --bip32 --reconstruct-xpriv`, which
+reconstructs the original xprv. Without `--reconstruct-xpriv` the 64 bytes are read as a BIP-32
+seed and you get a different key — the same thing another wallet would do.
 
 ### Combine Command
 
@@ -131,10 +140,22 @@ dotnet run -- combine [options] "share1" "share2" ["share3" ...]
 ```
 
 **Options:**
-- `--passphrase <p>` - Custom passphrase (default: TREZOR)
+- `--passphrase <p>` - Passphrase (default: none, as SLIP-0039 requires)
 - `--format <fmt>` - Output format: hex, base64, binary (default: hex)
 - `--bip32` - Also show BIP32 master key
 - `--ignore-invalid-shares` - Recover from the sound shares even if some disagree
+- `--reconstruct-xpriv` - Read the secret as a private key and chain code from `split-xpriv`,
+  instead of as a BIP-32 master seed
+
+With `--bip32` the recovered secret is treated as a BIP-32 master seed, which is what SLIP-0039
+requires a backup to contain. Shares made by `split-xpriv` hold a private key and chain code
+instead, and need `--reconstruct-xpriv`: nothing in the recovered bytes distinguishes the two, so
+the choice has to be yours.
+
+**No passphrase means the empty string**, as the specification requires. Shares created by a
+version of this tool from before that was corrected used `"TREZOR"` — recover those with
+`--passphrase TREZOR`. Nothing can detect which you have: SLIP-0039 provides no way to verify a
+passphrase, so the wrong one returns a different secret and reports success.
 
 Passing more shares than the threshold is allowed: the extra ones are checked against the rest.
 By default recovery stops if any of them disagrees, so a backup that has degraded does not pass
@@ -221,7 +242,7 @@ dotnet run -- generate [options]
 - `--bits <n>` - Secret size in bits: 128 or 256 (default: 256)
 - `--threshold <n>` - Number of shares needed to recover (default: 2)
 - `--shares <n>` - Total number of shares to generate (default: 3)
-- `--passphrase <p>` - Custom passphrase (default: TREZOR)
+- `--passphrase <p>` - Passphrase (default: none, as SLIP-0039 requires)
 - `--iterations <n>` - Iteration exponent 0-15 (default: 0)
 - `--extendable` - Generate extendable shares
 - `--format <fmt>` - Output format: text, json, hex (default: text)
@@ -275,7 +296,11 @@ Raw hexadecimal representation of the share data.
 
 ## Security Notes
 
-1. **Passphrases**: If no passphrase is specified, "TREZOR" is used as the default per SLIP-0039 specification.
+1. **Passphrases**: If no passphrase is specified, the empty string is used, as SLIP-0039
+   requires. ("TREZOR" is the passphrase the specification's *test vectors* use; this tool used to
+   treat it as the default, which made its shares unreadable by other implementations.) Use only
+   printable ASCII: the specification requires it for interoperability, and the CLI warns
+   otherwise.
 
 2. **Iteration Count**: The iteration count is calculated as 10,000 × 2^e where e is the iteration exponent (0-15).
 

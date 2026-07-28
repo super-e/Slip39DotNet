@@ -367,6 +367,7 @@ class Program
         string outputFormat = "hex";
         bool showBip32 = false;
         bool ignoreInvalidShares = false;
+        bool reconstructXpriv = false;
 
         // Parse arguments
         for (int i = 0; i < args.Length; i++)
@@ -394,6 +395,9 @@ class Program
                     break;
                 case "--ignore-invalid-shares":
                     ignoreInvalidShares = true;
+                    break;
+                case "--reconstruct-xpriv":
+                    reconstructXpriv = true;
                     break;
                 default:
                     // If it doesn't start with --, treat as a share
@@ -478,18 +482,28 @@ class Program
             {
                 try
                 {
-                    // Check if this is a 64-byte secret from split-xpriv (private key + chain code)
-                    if (masterSecret.Length == 64)
+                    // Nothing in the recovered bytes says which of the two things they are, so
+                    // the caller has to. This branch used to assume that any 64-byte secret came
+                    // from split-xpriv, which silently produced the wrong wallet for a genuine
+                    // 512-bit BIP-32 seed — a length SLIP-0039 explicitly supports.
+                    if (reconstructXpriv)
                     {
-                        // Reconstruct the original BIP32 extended private key
                         string reconstructedXpriv = Bip32MasterKey.ReconstructFromComponents(masterSecret);
                         SystemConsole.WriteLine($"Reconstructed BIP32 Extended Private Key: {reconstructedXpriv}");
                     }
                     else
                     {
-                        // Generate a new BIP32 master key from the secret
                         string bip32Key = Bip32MasterKey.GenerateMasterKey(masterSecret);
                         SystemConsole.WriteLine($"BIP32 Master Key: {bip32Key}");
+
+                        if (masterSecret.Length == 64)
+                        {
+                            SystemConsole.WriteLine(
+                                "Note: the secret was read as a BIP-32 master seed, which is what " +
+                                "SLIP-0039 requires. If this backup was made with 'split-xpriv', " +
+                                "the 64 bytes are a private key and chain code instead — rerun " +
+                                "with --reconstruct-xpriv to get that key back.");
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -616,7 +630,14 @@ class Program
         SystemConsole.WriteLine("  --format <fmt>      Output format: hex, base64, binary (default: hex)");
         SystemConsole.WriteLine("  --bip32             Also show BIP32 master key");
         SystemConsole.WriteLine("  --ignore-invalid-shares");
-        SystemConsole.WriteLine("                      Recover from the sound shares even if some disagree\n");
+        SystemConsole.WriteLine("                      Recover from the sound shares even if some disagree");
+        SystemConsole.WriteLine("  --reconstruct-xpriv Read the secret as a private key and chain code from");
+        SystemConsole.WriteLine("                      'split-xpriv', instead of as a BIP-32 master seed\n");
+
+        SystemConsole.WriteLine("With --bip32 the recovered secret is treated as a BIP-32 master seed, which is");
+        SystemConsole.WriteLine("what SLIP-0039 requires a backup to contain. Shares made by 'split-xpriv' hold");
+        SystemConsole.WriteLine("a private key and chain code instead, and need --reconstruct-xpriv: nothing in");
+        SystemConsole.WriteLine("the recovered bytes distinguishes the two, so the choice has to be yours.\n");
 
         SystemConsole.WriteLine("Passing more shares than the threshold is allowed: the extra ones are checked");
         SystemConsole.WriteLine("against the rest. By default recovery stops if any of them disagrees, so a");
@@ -628,6 +649,7 @@ class Program
         SystemConsole.WriteLine("  slip39 combine \"mild isolate academic acid...\" \"mild isolate academic agency...\"");
         SystemConsole.WriteLine("  slip39 combine --passphrase mypass --bip32 \"share1\" \"share2\"");
         SystemConsole.WriteLine("  slip39 combine --format base64 \"share1\" \"share2\"");
+        SystemConsole.WriteLine("  slip39 combine --bip32 --reconstruct-xpriv \"share1\" \"share2\"");
     }
 
     static int HandleInfoCommand(string[] args)
@@ -1241,6 +1263,20 @@ class Program
                 isExtendable: extendable
             );
 
+            // These shares are valid SLIP-0039 — any implementation recovers the same 64 bytes
+            // from them — but SLIP-0039 says a BIP-32 backup MUST contain the BIP-32 master
+            // seed, and these 64 bytes are a private key and chain code. Another wallet will
+            // take them for a seed and derive a different wallet, without any error. The seed
+            // cannot be recovered from an xprv, so this command cannot be made conformant; it
+            // can only say so.
+            SystemConsole.Error.WriteLine(
+                "Warning: these shares are not a portable BIP-32 backup. SLIP-0039 requires a " +
+                "BIP-32 backup to hold the master seed; an xprv does not contain it, so what is " +
+                "split here is the private key and chain code. Another wallet restoring these " +
+                "shares will derive a different wallet, and will not report an error. Recover " +
+                "them with 'slip39 combine --bip32 --reconstruct-xpriv'. To make a backup any " +
+                "SLIP-0039 wallet can restore, split the master seed with 'slip39 split'.");
+
             // Display configuration summary
             SystemConsole.WriteLine($"Successfully generated {generatedShares.Count} SLIP-0039 shares from BIP32 key:");
             
@@ -1322,7 +1358,15 @@ class Program
         SystemConsole.WriteLine("  # Corporate backup with custom passphrase:");
         SystemConsole.WriteLine("  slip39 split-xpriv --xpriv xprv9s21ZrQH... --groups \"3-of-5\" --passphrase corp2024");
         SystemConsole.WriteLine();
-        SystemConsole.WriteLine("Note: The resulting shares can be combined using 'slip39 combine --bip32' to reconstruct the original xprv.");
+        SystemConsole.WriteLine("Note: recover these shares with 'slip39 combine --bip32 --reconstruct-xpriv'.");
+        SystemConsole.WriteLine();
+        SystemConsole.WriteLine("These shares are valid SLIP-0039, but they are not a portable BIP-32 backup.");
+        SystemConsole.WriteLine("The specification requires a BIP-32 backup to contain the master seed, and an");
+        SystemConsole.WriteLine("xprv does not contain it - what is split here is the private key and chain code.");
+        SystemConsole.WriteLine("Another wallet restoring these shares will treat those 64 bytes as a seed and");
+        SystemConsole.WriteLine("derive a different wallet, without reporting an error. If you still have the");
+        SystemConsole.WriteLine("master seed, back that up with 'slip39 split' instead: any SLIP-0039 wallet can");
+        SystemConsole.WriteLine("restore it.");
     }
 
     static void ShowGenerateHelp()
