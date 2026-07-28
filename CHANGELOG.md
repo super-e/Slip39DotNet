@@ -122,6 +122,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejected it with "Invalid mnemonic checksum". `ToHex()` now derives its bit stream from
   the same `ShareToIndices` used by `ToMnemonic()`, and `ParseFromHex()` discards the
   trailing byte-alignment slack before parsing.
+- **CI**: the Security Scan job can upload its CodeQL results. `ci.yml` declared no
+  `permissions` at all, so the job ran with the repository's default token, which may not write
+  the repository's code scanning alerts. The analysis itself always succeeded — it scans every
+  C# file and produces its SARIF — and the job then died on the upload with "Resource not
+  accessible by integration". Every push to `main` had failed this way since the workflow was
+  written in June 2025, and nobody saw it: on a pull request the same upload succeeds, so the
+  checks that gate a merge were green throughout while the scan on the default branch had never
+  once completed. The repository's code scanning state was therefore never written from `main`;
+  every alert acted on in this release came from a pull request. `permissions` is declared on
+  that job alone — `contents: read` at workflow level would be the tidier default, but it would
+  take write access away from `build-artifacts`, which uploads release assets.
 
 ### Changed
 - `Slip39ShareGeneration.CombineShares` is now `[Obsolete]` and forwards to
