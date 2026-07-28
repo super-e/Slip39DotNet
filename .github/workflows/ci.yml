@@ -53,7 +53,20 @@ jobs:
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
-    
+
+    # Uploading the CodeQL results writes the repository's code scanning alerts, which the
+    # default GITHUB_TOKEN is not allowed to do. Without this the analysis ran, found its
+    # results, and then failed at the upload with "Resource not accessible by integration" —
+    # on every push to main since the workflow was written. Pull request runs were unaffected,
+    # which is why the failure stayed invisible: the checks people look at were green.
+    #
+    # Scoped to this job on purpose. A workflow-level default of contents: read would take
+    # write access away from build-artifacts, which uploads release assets.
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
     steps:
     - name: Checkout
       uses: actions/checkout@v4
