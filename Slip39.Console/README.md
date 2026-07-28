@@ -30,11 +30,16 @@ dotnet run --project Slip39.Console.csproj -- [command] [options]
 | Command | Description |
 |---------|-------------|
 | `split` | Split a secret into SLIP-0039 shares |
+| `split-xpriv` | Split a BIP32 extended private key into SLIP-0039 shares |
 | `combine` | Combine SLIP-0039 shares to recover secret |
 | `info` | Display detailed information about a share |
-| `validate` | Validate SLIP-0039 share checksums |
+| `validate` | Validate SLIP-0039 share checksums, and cross-check shares |
 | `generate` | Generate a random secret and split it |
 | `help` | Show help message |
+
+Every command returns exit code 0 on success and 1 on failure, and writes its error messages to
+stderr. Unrecognised options are an error rather than being ignored — `--treshold 5` used to
+produce a 2-of-7 split with nothing to indicate the flag had been dropped.
 
 ### Split Command
 
@@ -84,6 +89,38 @@ dotnet run -- split --secret 1234abcd --group-threshold 3 --groups "2-of-3,1-of-
 dotnet run -- split --secret 1234abcd --group-threshold 2 --groups "2-of-3,1-of-1,3-of-5"
 ```
 
+### Split-Xpriv Command
+
+Split a BIP32 extended private key into SLIP-0039 shares.
+
+**Usage:**
+```bash
+dotnet run -- split-xpriv --xpriv <xprv...> [options]
+```
+
+Takes the same grouping, passphrase, iteration and format options as `split`, plus:
+- `--xpriv <xprv...>` - BIP32 extended private key (required)
+- `--show-secret` - Print the private key, chain code and combined secret
+
+`--show-secret` is **off by default**. Those three values are the wallet itself; printing them on
+every invocation put them in terminal scrollback, shell history and any logs capturing stdout.
+
+Only a mainnet extended *private* key is accepted. An `xpub` decodes to the same 78 bytes and used
+to pass with only a warning — the command then labelled part of the public key "Private Key" and
+split it into shares, producing a confident-looking backup that cannot restore a wallet.
+
+**Examples:**
+```bash
+# Simple backup of a hardware wallet master key
+dotnet run -- split-xpriv --xpriv xprv9s21ZrQH... --threshold 2 --shares 3
+
+# Multi-group backup with a custom passphrase
+dotnet run -- split-xpriv --xpriv xprv9s21ZrQH... --group-threshold 2 --groups "2-of-3,3-of-5" --passphrase corp2024
+```
+
+The resulting shares are recombined with `slip39 combine --bip32`, which reconstructs the original
+xprv.
+
 ### Combine Command
 
 Combine SLIP-0039 shares to recover the original secret.
@@ -97,6 +134,14 @@ dotnet run -- combine [options] "share1" "share2" ["share3" ...]
 - `--passphrase <p>` - Custom passphrase (default: TREZOR)
 - `--format <fmt>` - Output format: hex, base64, binary (default: hex)
 - `--bip32` - Also show BIP32 master key
+- `--ignore-invalid-shares` - Recover from the sound shares even if some disagree
+
+Passing more shares than the threshold is allowed: the extra ones are checked against the rest.
+By default recovery stops if any of them disagrees, so a backup that has degraded does not pass
+unnoticed. `--ignore-invalid-shares` recovers anyway from the shares that do agree, as long as a
+quorum remains in every group — someone recovering under pressure should not be blocked by one
+share mis-transcribed years ago when the rest are sufficient. The shares that were excluded are
+reported, and the recovered secret is verified against its SLIP-0039 digest either way.
 
 **Examples:**
 ```bash
@@ -108,6 +153,9 @@ dotnet run -- combine --passphrase mypass --bip32 "share1" "share2"
 
 # Output in base64 format
 dotnet run -- combine --format base64 "share1" "share2"
+
+# Recover from three shares when one of them is wrong
+dotnet run -- combine --ignore-invalid-shares "share1" "share2" "share3"
 ```
 
 ### Info Command
@@ -137,7 +185,7 @@ dotnet run -- info --no-validate "potentially invalid share"
 
 ### Validate Command
 
-Validate SLIP-0039 share checksums.
+Validate SLIP-0039 share checksums, and cross-check the shares against each other.
 
 **Usage:**
 ```bash
@@ -146,6 +194,10 @@ dotnet run -- validate [options] "share1" "share2" ["share3" ...]
 
 **Options:**
 - `--verbose` - Show detailed validation information
+
+Given two or more shares, they are also cross-checked. A valid checksum only proves one mnemonic
+was copied without a typo; the cross-check proves the shares still belong together, which is what
+someone testing an old backup wants to know.
 
 **Examples:**
 ```bash
@@ -200,7 +252,7 @@ Human-readable output with clear formatting and descriptions.
 Structured JSON output suitable for programmatic processing:
 ```json
 {
-  "identifier": 12345,
+  "identifier": 23762,
   "extendable": false,
   "iterationExponent": 0,
   "groupIndex": 0,
@@ -208,10 +260,15 @@ Structured JSON output suitable for programmatic processing:
   "groupCount": 0,
   "memberIndex": 0,
   "memberThreshold": 1,
-  "shareValue": "...",
-  "checksum": 123456789
+  "shareValue": "sUCXy46b1p6hXn9O5ORJag==",
+  "checksum": 958672780
 }
 ```
+
+`Slip39ShareParser.ParseFromJson` reads this format back, and now checks it: the fields must be
+within their SLIP-0039 bit widths, and `checksum` must be the RS1024 checksum those fields imply.
+A share edited by hand — including one given a placeholder checksum, as the example above used to
+carry — is rejected rather than silently accepted and re-encoded into a wrong mnemonic.
 
 ### Hex Format
 Raw hexadecimal representation of the share data.

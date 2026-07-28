@@ -19,6 +19,42 @@ A complete .NET implementation of [SLIP-0039](https://github.com/satoshilabs/sli
 - ✅ **Comprehensive Testing** - Extensive test suite with official test vectors
 - ✅ **Memory Safety** - Secure handling of sensitive cryptographic material
 
+## Breaking Changes (unreleased)
+
+The unreleased version changes behaviour in ways that will break existing callers. Each entry
+says what to do about it; the [CHANGELOG](CHANGELOG.md) explains why.
+
+### Library
+
+| Change | What breaks | What to do |
+|---|---|---|
+| `Slip39ShareCombination.CombineShares` requires **exactly** the member threshold from each group | Passing extra shares now throws | Pass exactly *T* shares per group, or call `VerifyShares` first to check the rest |
+| `Slip39ShareGeneration.CombineShares` is `[Obsolete]` | Compiler warning | Call `Slip39ShareCombination.CombineShares`, which it now forwards to |
+| `Slip39Share.ToHex()` / `ParseFromHex()` use the canonical SLIP-0039 bit layout | Hex written by earlier versions no longer parses | Re-export affected shares from their mnemonic form. Mnemonic and JSON are unaffected |
+| `Slip39Share` has no parameterless constructor and its fields are `init`-only | Object initialisers and property assignment no longer compile | Use the ten-argument constructor, which validates the field ranges |
+| `Slip39ShareParser.ParseFromJson` validates field ranges and the RS1024 checksum | JSON shares with a wrong or placeholder checksum are rejected | Give hand-built shares a real checksum, or build them through the constructor and `ToJson` |
+| `Wordlist.Words` returns `IReadOnlyList<string>` | Assigning it to a `string[]`, or writing through it, no longer compiles | Read it as `IReadOnlyList<string>`; indexing and enumeration are unchanged |
+| The wordlist is loaded only from the embedded resource, and verified on load | A `wordlist.txt` placed next to the DLL is ignored | Nothing, unless you were substituting the wordlist — which is what this prevents |
+| `Rs1024Checksum.BytesToWords`, `WordsToBytes` and `BytesToWordsExact` are removed | Compile error | Use `Slip39ShareParser.ShareToIndices`. The removed helpers did not produce the SLIP-0039 share layout |
+| `Slip39Passphrase.EstimatePassphraseEntropy` is `[Obsolete]` | Compiler warning | Call `MaximumPassphraseEntropyBits`, and read its documentation before trusting the number |
+
+Not breaking, but worth knowing when you upgrade: the recovery path
+(`PolynomialInterpolation.RecoverSecret` and `Slip39ShareCombination.CombineShares`) now zeroes
+its intermediate key material, and both document that the caller owns — and should zero — the
+array they return. `RecoverSecret` also returns a copy rather than the caller's own array in the
+threshold-1 case, so recovering from a 1-of-1 group no longer zeroes a `ShareValue` you still
+hold.
+
+### CLI
+
+| Change | What breaks |
+|---|---|
+| Failures return exit code 1 and write to **stderr** | Scripts that treated exit 0 as success were previously told nothing had failed. This is a fix, but it changes what your scripts see |
+| An unrecognised option is an error | `split --treshold 5 --shares 7` used to silently produce a 2-of-7 split. It now fails |
+| `split-xpriv` prints the private key and chain code only with `--show-secret` | Anything parsing that output must pass the flag |
+| `split-xpriv` rejects anything that is not a mainnet extended **private** key | An `xpub` used to pass with a warning and be split into an unusable backup |
+| `combine` refuses to recover from a set of shares that contradicts itself | Add `--ignore-invalid-shares` to recover from the shares that do agree, provided a quorum remains |
+
 ## Quick Start
 
 ### Installation
@@ -63,9 +99,17 @@ var shares = Slip39ShareGeneration.GenerateShares(
 // Convert shares to mnemonics
 var mnemonics = shares.Select(share => share.ToMnemonic()).ToArray();
 
-// Later, combine shares to recover the secret
+// Later, combine shares to recover the secret.
+// Pass exactly the member threshold from each group — no more: SLIP-0039 requires it, and
+// surplus shares would otherwise be discarded without ever being checked.
 var recoveredSecret = Slip39ShareCombination.CombineShares(shares.Take(2).ToList(), "optional_passphrase");
 Console.WriteLine($"Recovered: {Convert.ToHexString(recoveredSecret)}");
+
+// To check every share you hold rather than the threshold-many recovery consumes —
+// "is my backup still intact?" — use VerifyShares. It needs no passphrase and returns no secret.
+var report = Slip39ShareCombination.VerifyShares(shares);
+foreach (var bad in report.Inconsistent)
+    Console.WriteLine($"Share {bad.Share.MemberIndex} of group {bad.Share.GroupIndex}: {bad.Detail}");
 
 // Generate BIP32 master key from recovered secret
 var masterKey = Bip32MasterKey.GenerateMasterKey(recoveredSecret, "optional_passphrase");
@@ -173,8 +217,9 @@ Command-line interface providing:
 - **split-xpriv** - Split BIP32 extended private keys into shares
 - **combine** - Combine shares to recover secrets
 - **combine --bip32** - Recover and reconstruct BIP32 extended private keys
+- **combine --ignore-invalid-shares** - Recover from the shares that agree when some do not
 - **info** - Display detailed share information
-- **validate** - Validate share checksums
+- **validate** - Validate share checksums, and cross-check shares against each other
 - **generate** - Generate random secrets and split into shares
 - **Multi-format output** - Text, JSON, and hex output formats
 
@@ -206,6 +251,10 @@ dotnet run --project Slip39.Console combine --bip32 "share1" "share2"
 # Split a BIP32 extended private key (xprv) into SLIP-0039 shares
 dotnet run --project Slip39.Console split-xpriv --xpriv "xprv9s21ZrQH143K..." --threshold 2 --shares 3
 
+# Same, also printing the private key and chain code. Off by default: they are the wallet
+# itself, and would otherwise land in terminal scrollback and logs on every invocation.
+dotnet run --project Slip39.Console split-xpriv --xpriv "xprv9s21ZrQH143K..." --threshold 2 --shares 3 --show-secret
+
 # Split with custom passphrase and multi-group configuration
 dotnet run --project Slip39.Console split-xpriv --xpriv "xprv9s21ZrQH143K..." --group-threshold 2 --groups "2-of-3,3-of-5" --passphrase "mypassword"
 
@@ -219,8 +268,11 @@ dotnet run --project Slip39.Console combine --bip32 "share1" "share2"
 # Get detailed information about a share
 dotnet run --project Slip39.Console info "share_mnemonic"
 
-# Validate share checksums
+# Validate share checksums, and cross-check the shares against each other
 dotnet run --project Slip39.Console validate "share1" "share2" "share3"
+
+# Recover even though one share is wrong, as long as a quorum of sound ones remains
+dotnet run --project Slip39.Console combine --ignore-invalid-shares "share1" "share2" "share3"
 
 # Generate random secret and split into shares
 dotnet run --project Slip39.Console generate --bits 256 --threshold 2 --shares 3
@@ -237,7 +289,10 @@ For detailed CLI usage, see [Slip39.Console/README.md](Slip39.Console/README.md)
 - **Secure Memory**: Sensitive data is handled securely and cleared when possible
 - **Passphrase Protection**: Optional passphrase adds an additional layer of security
 - **Threshold Security**: Requires minimum number of shares to recover secrets
-- **Checksum Validation**: RS1024 checksums prevent corruption and detect errors
+- **Checksum Validation**: RS1024 checksums detect a mnemonic that was mis-transcribed
+- **Cross-checking**: a valid checksum only proves one mnemonic was copied correctly. `VerifyShares`
+  and `slip39 validate` check that the shares still agree with each other, which is the question
+  someone testing an old backup is actually asking
 
 ⚠️ **Important**: Keep your mnemonic shares secure and backed up. Loss of shares below the threshold means permanent loss of your secret.
 
