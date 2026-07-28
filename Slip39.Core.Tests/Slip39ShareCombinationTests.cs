@@ -261,17 +261,16 @@ public class Slip39ShareCombinationTests
     }
 
     [Fact]
-    public void CombineShares_NullPassphrase_ShouldUseTrezorDefault()
+    public void CombineShares_NullPassphrase_MeansNoPassphrase()
     {
         // Arrange
         var masterSecret = new byte[16];
-        var trezorPassphrase = "TREZOR"; // SLIP-0039 default
         var groupConfigs = new List<Slip39ShareGeneration.GroupConfig> { new(1, 1) };
 
-        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs, 
-            masterSecret, trezorPassphrase, 0);
+        var shares = Slip39ShareGeneration.GenerateShares(1, groupConfigs,
+            masterSecret, null, 0);
 
-        // Act - null passphrase should default to TREZOR
+        // Act
         var recovered = Slip39ShareCombination.CombineShares(shares, null!);
 
         // Assert

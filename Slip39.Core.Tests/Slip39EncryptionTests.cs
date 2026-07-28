@@ -161,25 +161,24 @@ public class Slip39EncryptionTests
     }
 
     [Fact]
-    public void Encrypt_EmptyPassphrase_ShouldUseTrezorDefault()
+    public void Encrypt_EmptyPassphrase_MeansNoPassphrase()
     {
         // Arrange
         var masterSecret = new byte[16];
-        var emptyPassphrase = ""; // Should be treated as TREZOR
         byte iterationExponent = 0;
         ushort identifier = 0x1000;
         bool isExtendable = true;
 
         // Act
-        var encrypted = Slip39Encryption.Encrypt(masterSecret, emptyPassphrase, iterationExponent, 
-            identifier, isExtendable);
-        
-        // Should be able to decrypt with explicit TREZOR
-        var decrypted = Slip39Encryption.Decrypt(encrypted, "TREZOR", iterationExponent,
+        var encrypted = Slip39Encryption.Encrypt(masterSecret, "", iterationExponent,
             identifier, isExtendable);
 
-        // Assert
-        Assert.Equal(masterSecret, decrypted);
+        // Assert - null, empty and an explicitly empty passphrase are the same thing, and
+        // none of them is "TREZOR". This test used to assert that "" decrypted with "TREZOR".
+        Assert.Equal(masterSecret,
+            Slip39Encryption.Decrypt(encrypted, null, iterationExponent, identifier, isExtendable));
+        Assert.NotEqual(masterSecret,
+            Slip39Encryption.Decrypt(encrypted, "TREZOR", iterationExponent, identifier, isExtendable));
     }
 
     [Fact]

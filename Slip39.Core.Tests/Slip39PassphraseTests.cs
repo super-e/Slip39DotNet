@@ -9,26 +9,41 @@ namespace Slip39.Core.Tests;
 /// </summary>
 public class Slip39PassphraseTests
 {
-    [Fact]
-    public void NormalizePassphrase_EmptyString_ShouldReturnTrezorDefault()
+    /// <summary>
+    /// SLIP-0039: "If no passphrase is provided, an empty string SHALL be used as the
+    /// passphrase." These used to assert the opposite — that no passphrase meant "TREZOR",
+    /// the passphrase the specification's own test vectors use — which is what made every
+    /// share produced without an explicit passphrase unreadable by any other implementation.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public void NormalizePassphrase_NoPassphrase_IsTheEmptyString(string? passphrase)
     {
-        // Act
-        var result = Slip39Passphrase.NormalizePassphrase("");
+        var result = Slip39Passphrase.NormalizePassphrase(passphrase);
 
-        // Assert
-        var expectedTrezor = Encoding.UTF8.GetBytes("TREZOR");
-        Assert.Equal(expectedTrezor, result);
+        Assert.Empty(result);
     }
 
     [Fact]
-    public void NormalizePassphrase_NullString_ShouldReturnTrezorDefault()
+    public void NormalizePassphrase_NoPassphrase_IsNotTrezor()
     {
-        // Act
-        var result = Slip39Passphrase.NormalizePassphrase(null);
+        // Named separately because it is the specific regression, and because a reader who
+        // knows the test vectors will wonder.
+        Assert.NotEqual(Encoding.UTF8.GetBytes("TREZOR"), Slip39Passphrase.NormalizePassphrase(null));
+    }
 
-        // Assert
-        var expectedTrezor = Encoding.UTF8.GetBytes("TREZOR");
-        Assert.Equal(expectedTrezor, result);
+    [Theory]
+    [InlineData("correct horse battery staple", true)]
+    [InlineData(" !~", true)]                 // the ends of the printable ASCII range
+    [InlineData("", true)]                    // no passphrase is portable
+    [InlineData("café", false)]               // non-ASCII
+    [InlineData("two\nlines", false)]         // control character
+    public void IsPortablePassphrase_FollowsTheSpecificationsAsciiRule(string passphrase, bool expected)
+    {
+        // SLIP-0039 requires printable ASCII (32-126) "in order to achieve the best
+        // interoperability among various operating systems and wallet implementations".
+        Assert.Equal(expected, Slip39Passphrase.IsPortablePassphrase(passphrase));
     }
 
     [Fact]
@@ -169,7 +184,7 @@ public class Slip39PassphraseTests
     {
         Assert.False(Slip39Passphrase.ArePassphrasesEqual("alpha", "beta"));
         Assert.False(Slip39Passphrase.ArePassphrasesEqual("alpha", "alphaa"));
-        Assert.False(Slip39Passphrase.ArePassphrasesEqual("alpha", null)); // null means "TREZOR"
+        Assert.False(Slip39Passphrase.ArePassphrasesEqual("alpha", null)); // null means no passphrase
     }
 
     [Fact]

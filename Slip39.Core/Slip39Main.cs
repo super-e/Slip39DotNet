@@ -54,7 +54,7 @@ public static class Slip39
             // Use the correct SLIP-0039 share combination implementation
             var masterSecret = Slip39ShareCombination.CombineShares(shares, passphrase);
             
-            // Get the normalized passphrase that was actually used (null/empty becomes "TREZOR")
+            // Get the normalized passphrase that was actually used (null/empty means no passphrase)
             var normalizedPassphraseBytes = Slip39Passphrase.NormalizePassphrase(passphrase);
             var actualPassphrase = System.Text.Encoding.UTF8.GetString(normalizedPassphraseBytes);
             
@@ -78,7 +78,7 @@ public static class Slip39
     /// Generates a BIP32 extended private key from the master secret and passphrase according to SLIP-0039 specification.
     /// </summary>
     /// <param name="masterSecret">The recovered master secret</param>
-    /// <param name="passphrase">Optional passphrase for key derivation (defaults to "TREZOR")</param>
+    /// <param name="passphrase">Optional passphrase for key derivation (null or empty means no passphrase)</param>
     /// <returns>BIP32 extended private key in Base58Check format (xprv...)</returns>
     public static string GenerateMasterKey(byte[] masterSecret, string? passphrase = null)
     {

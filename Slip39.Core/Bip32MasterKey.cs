@@ -21,7 +21,7 @@ public static class Bip32MasterKey
     /// Generates a BIP32 extended private key from a SLIP-0039 master secret according to the specification.
     /// </summary>
     /// <param name="masterSecret">The master secret recovered from SLIP-0039 shares</param>
-    /// <param name="passphrase">Optional passphrase (default is "TREZOR")</param>
+    /// <param name="passphrase">Optional passphrase (null or empty means no passphrase)</param>
     /// <returns>Base58Check encoded BIP32 extended private key (xprv...)</returns>
     public static string GenerateMasterKey(byte[] masterSecret, string? passphrase = null)
     {

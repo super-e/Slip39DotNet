@@ -13,7 +13,7 @@ public static class Slip39ShareCombination
     /// Implements all validation steps from the "Combining the shares" section.
     /// </summary>
     /// <param name="shares">List of parsed SLIP-0039 shares</param>
-    /// <param name="passphrase">Passphrase for master secret decryption (null defaults to "TREZOR")</param>
+    /// <param name="passphrase">Passphrase for master secret decryption (null or empty means no passphrase)</param>
     /// <returns>The recovered master secret</returns>
     /// <exception cref="ArgumentException">Thrown when share validation fails</exception>
     /// <exception cref="InvalidOperationException">Thrown when share combination fails</exception>

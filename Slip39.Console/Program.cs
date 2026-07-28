@@ -221,6 +221,8 @@ class Program
                 groupThreshold = 1;
             }
 
+            WarnIfPassphraseIsNotPortable(passphrase);
+
             var generatedShares = Slip39ShareGeneration.GenerateShares(
                 groupThreshold: groupThreshold,
                 groupConfigs: parsedGroupConfigs,
@@ -329,7 +331,7 @@ class Program
         SystemConsole.WriteLine("                         Examples: \"2-of-3\" or \"2-of-3,3-of-5,1-of-1\"\n");
         
         SystemConsole.WriteLine("Common Options:");
-        SystemConsole.WriteLine("  --passphrase <p>   Custom passphrase (default: TREZOR)");
+        SystemConsole.WriteLine("  --passphrase <p>   Passphrase (default: none, per SLIP-0039)");
         SystemConsole.WriteLine("  --iterations <n>   Iteration exponent 0-15 (default: 0 = 10,000 iterations)");
         SystemConsole.WriteLine("  --extendable       Generate extendable shares");
         SystemConsole.WriteLine("  --format <fmt>     Output format: text, json, hex (default: text)\n");
@@ -443,6 +445,20 @@ class Program
                 ? $"Shares used: {used.Count}"
                 : $"Shares used: {used.Count} of the {shares.Count} supplied (the rest were cross-checked)");
             SystemConsole.WriteLine($"Passphrase: {FormatPassphraseDisplay(passphrase)}");
+
+            // SLIP-0039 cannot tell a wrong passphrase from a right one — every passphrase
+            // decrypts to some secret, and only the owner knows which is theirs. Earlier
+            // versions of this tool used "TREZOR" when no passphrase was given, so shares made
+            // with one of those versions recover to the wrong secret here, silently. Saying so
+            // is the only warning that can exist.
+            if (string.IsNullOrEmpty(passphrase))
+            {
+                SystemConsole.WriteLine(
+                    "Note: shares created with a version of this tool from before the passphrase " +
+                    "default was corrected used \"TREZOR\". If this secret is not the one you " +
+                    "expect, retry with --passphrase TREZOR.");
+            }
+
             SystemConsole.WriteLine();
 
             switch (outputFormat.ToLowerInvariant())
@@ -596,7 +612,7 @@ class Program
         
         SystemConsole.WriteLine("Optional Arguments:");
         SystemConsole.WriteLine("  --shares \"s1\" \"s2\"  List of mnemonic shares to combine");
-        SystemConsole.WriteLine("  --passphrase <p>    Custom passphrase (default: TREZOR)");
+        SystemConsole.WriteLine("  --passphrase <p>    Passphrase (default: none, per SLIP-0039)");
         SystemConsole.WriteLine("  --format <fmt>      Output format: hex, base64, binary (default: hex)");
         SystemConsole.WriteLine("  --bip32             Also show BIP32 master key");
         SystemConsole.WriteLine("  --ignore-invalid-shares");
@@ -1027,6 +1043,8 @@ class Program
                 new(threshold, shares)
             };
 
+            WarnIfPassphraseIsNotPortable(passphrase);
+
             var generatedShares = Slip39ShareGeneration.GenerateShares(
                 groupThreshold: 1,
                 groupConfigs: groupConfigs,
@@ -1212,6 +1230,8 @@ class Program
 
             // For BIP32 keys, the 64-byte secret (private key + chain code) should be treated
             // as a master secret that goes through the normal SLIP-0039 encryption process
+            WarnIfPassphraseIsNotPortable(passphrase);
+
             var generatedShares = Slip39ShareGeneration.GenerateShares(
                 groupThreshold: groupThreshold,
                 groupConfigs: parsedGroupConfigs,
@@ -1283,7 +1303,7 @@ class Program
         SystemConsole.WriteLine("                         Examples: \"2-of-3\" or \"2-of-3,3-of-5,1-of-1\"\n");
         
         SystemConsole.WriteLine("Common Options:");
-        SystemConsole.WriteLine("  --passphrase <p>    Custom passphrase (default: TREZOR)");
+        SystemConsole.WriteLine("  --passphrase <p>    Passphrase (default: none, per SLIP-0039)");
         SystemConsole.WriteLine("  --iterations <n>    Iteration exponent 0-15 (default: 0 = 10,000 iterations)");
         SystemConsole.WriteLine("  --extendable        Generate extendable shares");
         SystemConsole.WriteLine("  --format <fmt>      Output format: text, json, hex (default: text)");
@@ -1317,7 +1337,7 @@ class Program
         SystemConsole.WriteLine("  --bits \u003cn\u003e         Secret size in bits: 128 or 256 (default: 256)");
         SystemConsole.WriteLine("  --threshold \u003cn\u003e    Number of shares needed to recover (default: 2)");
         SystemConsole.WriteLine("  --shares \u003cn\u003e       Total number of shares to generate (default: 3)");
-        SystemConsole.WriteLine("  --passphrase \u003cp\u003e   Custom passphrase (default: TREZOR)");
+        SystemConsole.WriteLine("  --passphrase \u003cp\u003e   Passphrase (default: none, per SLIP-0039)");
         SystemConsole.WriteLine("  --iterations \u003cn\u003e   Iteration exponent 0-15 (default: 0 = 10,000 iterations)");
         SystemConsole.WriteLine("  --extendable       Generate extendable shares");
         SystemConsole.WriteLine("  --format \u003cfmt\u003e     Output format: text, json, hex (default: text)");
@@ -1367,7 +1387,26 @@ class Program
 
     static string FormatPassphraseDisplay(string? passphrase)
     {
-        return string.IsNullOrEmpty(passphrase) ? "TREZOR (default)" : "[custom]";
+        return string.IsNullOrEmpty(passphrase) ? "(none)" : "[custom]";
+    }
+
+    /// <summary>
+    /// Warns when a passphrase will not travel to other SLIP-0039 implementations.
+    /// </summary>
+    /// <remarks>
+    /// Only on the generating side. At recovery time the passphrase is whatever the backup was
+    /// made with, and complaining about it there would help nobody.
+    /// </remarks>
+    static void WarnIfPassphraseIsNotPortable(string? passphrase)
+    {
+        if (Slip39Passphrase.IsPortablePassphrase(passphrase))
+            return;
+
+        SystemConsole.Error.WriteLine(
+            "Warning: the passphrase contains characters outside printable ASCII. SLIP-0039 " +
+            "requires printable ASCII (code points 32-126) so that a passphrase means the same " +
+            "thing to every implementation. These shares may not be recoverable with other " +
+            "SLIP-0039 tools.");
     }
 
     static void DisplayGeneratedShares(List<Slip39Share> shares, string outputFormat)

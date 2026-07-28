@@ -1,0 +1,59 @@
+[
+  {
+    "description": "128-bit 2-of-3, no passphrase",
+    "passphrase": "",
+    "mnemonics": [
+      "research walnut academic acid crucial upstairs spelling grant campus check manual beaver adorn wrist evidence axis arcade blessing armed bundle",
+      "research walnut academic agency aviation ajar shame lecture welcome luck plan vitamins salon rumor canyon vegan briefing include forget funding"
+    ],
+    "masterSecret": "a1b2c3d4e5f67890abcdef1234567890"
+  },
+  {
+    "description": "128-bit 2-of-3, no passphrase, ext",
+    "passphrase": "",
+    "mnemonics": [
+      "damage olympic academic acid center wavy teaspoon voter petition material national shaped afraid fused snapshot finance capture dynamic snake usual",
+      "damage olympic academic agency benefit rescue diminish total famous seafood extra elite glasses humidity maiden float view universe island vitamins"
+    ],
+    "masterSecret": "a1b2c3d4e5f67890abcdef1234567890"
+  },
+  {
+    "description": "256-bit 3-of-5, no passphrase",
+    "passphrase": "",
+    "mnemonics": [
+      "organize echo academic acne armed knife campus trash lily album easel rescue explain pacific imply inside tadpole taught viral sister deal rhythm midst soldier dance western reaction pickup charity laser friendly numerous unknown",
+      "organize echo academic agree admit together making intend paid energy hospital privacy scene element sunlight strategy unfold laser radar fishing mild flash spit acrobat treat moisture duration fused package agency havoc edge clock",
+      "organize echo academic amazing aquatic should garlic curly unknown system kind sweater legal stick fancy strike quantity equip merit phrase withdraw frozen pleasure afraid victim display maximum wits safari subject credit fishing fantasy"
+    ],
+    "masterSecret": "a1b2c3d4e5f67890abcdef1234567890fedcba0987654321a1b2c3d4e5f67890"
+  },
+  {
+    "description": "256-bit 2 groups GT=2, no passphrase",
+    "passphrase": "",
+    "mnemonics": [
+      "ocean aluminum acrobat echo amount crunch eraser withdraw training deploy huge deny suitable bishop discuss shadow unknown gesture armed golden welcome language being biology humidity vexed promise large order tidy trip champion browser",
+      "ocean aluminum acrobat email arena silent petition bike ounce square merchant prisoner evening exclude undergo founder dress golden mama moment trip scared browser laden national impulse element camera warn temple forbid replace pipeline",
+      "ocean aluminum beard echo amount mason junior fragment tracks regular cluster quarter amount cargo work declare fluff dramatic tension curly kidney blimp both picture species wavy stilt hunting either detailed simple losing ladybug",
+      "ocean aluminum beard email arcade argue chubby move depend welcome petition sugar salt rich method scramble flea category fused fancy heat remember warmth drove blue humidity merit ceramic unknown recall race duke wavy"
+    ],
+    "masterSecret": "a1b2c3d4e5f67890abcdef1234567890fedcba0987654321a1b2c3d4e5f67890"
+  },
+  {
+    "description": "128-bit 2-of-3, passphrase 'interop'",
+    "passphrase": "interop",
+    "mnemonics": [
+      "market walnut academic acid dress puny boring always island declare prisoner teammate pregnant volume detailed plunge improve news tenant often",
+      "market walnut academic agency decision papa bulge ruin premium explain rumor destroy require plunge herald adult shaft easy leader sidewalk"
+    ],
+    "masterSecret": "a1b2c3d4e5f67890abcdef1234567890"
+  },
+  {
+    "description": "512-bit 2-of-3, no passphrase",
+    "passphrase": "",
+    "mnemonics": [
+      "video extend academic acid acne angel solution parking inmate sugar military grant numb climate vampire enforce western numerous prospect invasion equip dictate firefly expand frozen pickup military execute explain pacific calcium mountain predator beard lunch column iris resident holy guitar hand pharmacy emphasis tofu ancestor detailed strategy switch mineral depict ajar platform slush morning involve frost blue crowd staff",
+      "video extend academic agency acquire judicial emphasis saver findings library freshman breathe armed curious flea invasion hunting agree advance violence category plunge trouble group admit detect scout radar withdraw clinic news sled dream worthy holy should picture market froth pitch merchant merit grumpy facility threaten intimate lawsuit marvel armed switch gather quiet industry soldier taxi holiday grocery industry distance"
+    ],
+    "masterSecret": "a1b2c3d4e5f67890abcdef1234567890fedcba0987654321a1b2c3d4e5f678900f1e2d3c4b5a69788796a5b4c3d2e1f0112233445566778899aabbccddeeff00"
+  }
+]
