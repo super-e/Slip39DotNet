@@ -83,6 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Installation and setup guides
 
 ### Fixed
+- Removed a comment in the `code-quality` job stating that no coverage is fed to Sonar. It
+  predates the OpenCover hand-off and contradicted the three steps directly above it, which
+  download the `test` job's report and pass it to the scanner.
 - **Interoperability**: no passphrase now means the empty string, as SLIP-0039 requires ("If no
   passphrase is provided, an empty string SHALL be used as the passphrase"). This library
   substituted `"TREZOR"` — the passphrase the specification's *test vectors* use — so every share
@@ -345,6 +348,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   debugging a hand-copied share looking for a mistyped word instead of a malformed share.
 
 ### Security
+- The Codecov upload action is pinned to the commit `v7.0.0` resolves to
+  (`fb8b3582c8e4def4969c97caa2f19720cb33a72f`) instead of the mutable `@v7` tag. Whoever
+  controls that repository can repoint a tag at other code, and the step is handed the
+  `CODECOV_TOKEN` repository secret. It was the workflow's only third-party action; the rest
+  are GitHub-owned `actions/*` and `github/*`.
 - `PassphraseInfo.ToString()` no longer prints the passphrase. It is a `record`, so the
   compiler-generated `ToString` printed every property: a single `$"{info}"` in a log line or an
   exception message wrote the passphrase out in full. The override reports the two lengths and
