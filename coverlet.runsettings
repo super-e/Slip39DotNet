@@ -4,7 +4,10 @@
     <DataCollectors>
       <DataCollector friendlyName="XPlat code coverage">
         <Configuration>
-          <Format>cobertura</Format>
+          <!-- Two formats from one test run. Codecov reads Cobertura; Sonar's C# plugin reads
+               OpenCover and not Cobertura. Emitting both here is what keeps the suite running
+               once instead of twice. -->
+          <Format>cobertura,opencover</Format>
           <Exclude>[coverlet.*.tests?]*,[*]Coverlet.Core*</Exclude> <!-- [Assembly-Filter]Type-Filter -->
           <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute</ExcludeByAttribute>
           <ExcludeByFile>**/Migrations/**/*.cs,**/wwwroot/**/*.cs,**/*Designer.cs,**/*.g.cs,**/*.g.i.cs</ExcludeByFile> <!-- Globbing filter -->

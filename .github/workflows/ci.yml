@@ -50,6 +50,22 @@ jobs:
         files: '**/coverage.cobertura.xml'
         fail_ci_if_error: false
 
+    # The same test run also emits OpenCover, which is the format Sonar's C# plugin reads.
+    # Handing it to code-quality as an artifact is what lets that job report coverage without
+    # running the suite a second time — the thing that was removed from it.
+    #
+    # if-no-files-found: error on purpose. If coverlet ever stops emitting OpenCover, the
+    # alternative is code-quality quietly reporting 0% coverage, which looks exactly like code
+    # that genuinely has none.
+    - name: Upload OpenCover coverage for the SonarCloud analysis
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: opencover-coverage
+        path: '**/coverage.opencover.xml'
+        if-no-files-found: error
+        retention-days: 1
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
@@ -195,6 +211,15 @@ jobs:
     name: Code Quality
     runs-on: ubuntu-latest
 
+    # Waits for `test` so it can consume that job's OpenCover report rather than producing its
+    # own. The two used to run in parallel, but `test` is the long pole of the whole workflow
+    # (~18 minutes) and this job takes about one, so serialising them costs roughly a minute of
+    # wall clock — far less than the second full suite run the alternative would need.
+    #
+    # A side effect worth keeping: a red test suite now skips the analysis entirely, instead of
+    # reporting on the quality of a tree that does not pass its own tests.
+    needs: test
+
     # Hoisted from the step. A step's own `env:` is not available to that step's `if:`, so
     # `if: env.SONAR_TOKEN != ''` on a step that defined SONAR_TOKEN itself compared '' to '' and
     # skipped the scan every time. The `secrets` context cannot be read from an `if:` directly,
@@ -243,6 +268,15 @@ jobs:
         distribution: temurin
         java-version: '17'
 
+    # Produced by the `test` job's single run of the suite. The report holds absolute paths from
+    # that runner, which match here because both jobs check out to the same workspace path.
+    - name: Download the OpenCover coverage from the test job
+      if: env.SONAR_TOKEN != ''
+      uses: actions/download-artifact@v4
+      with:
+        name: opencover-coverage
+        path: coverage
+
     # SonarScanner for .NET, not the generic CLI scanner the `sonarcloud-github-action` runs.
     # C# analysis happens inside MSBuild: `begin` installs the analyzers, the build produces the
     # analysis output, `end` uploads it. The CLI scanner never sees a single C# file, so the job
@@ -261,7 +295,8 @@ jobs:
           /k:"${{ env.SONAR_PROJECT_KEY }}" \
           /o:"${{ env.SONAR_ORGANIZATION }}" \
           /d:sonar.token="$SONAR_TOKEN" \
-          /d:sonar.host.url="${{ env.SONAR_HOST_URL }}"
+          /d:sonar.host.url="${{ env.SONAR_HOST_URL }}" \
+          /d:sonar.cs.opencover.reportsPaths="coverage/**/coverage.opencover.xml"
 
     # --no-incremental on purpose: the scanner can only see code MSBuild actually compiles, and
     # an incremental build that skips an up-to-date project would silently drop it from the

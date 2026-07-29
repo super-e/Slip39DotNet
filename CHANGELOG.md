@@ -153,12 +153,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the generic CLI scanner: C# analysis happens inside MSBuild, so that scanner never sees a
   single C# file. Had the guard been fixed alone, the result would have been a green "Code
   Quality" check reporting a successful scan of nothing. The job now uses SonarScanner for .NET
-  — `begin`, a non-incremental build, `end` — and skips cleanly when no token is configured. No
-  coverage is fed to Sonar: that would mean running the full suite again in this job, and
-  re-collecting it in OpenCover format, since Sonar's C# plugin does not read Cobertura. When
+  — `begin`, a non-incremental build, `end` — and skips cleanly when no token is configured. When
   the scan is skipped the job now says so with a `::notice::` rather than leaving it to be
   inferred from which steps are missing: a skipped scan and a real one both leave a green check,
   and that ambiguity had already been read the wrong way once.
+- **CI**: SonarCloud receives test coverage, without the suite running a second time.
+  `coverlet.runsettings` now emits `cobertura,opencover` from the one run the `test` job already
+  performs — Codecov reads the first, Sonar's C# plugin reads only the second — and the OpenCover
+  report travels to `code-quality` as an artifact. Reporting no coverage was not neutral: the
+  default *Sonar way* quality gate requires 80% coverage on new code, so the first pull request
+  adding C# would have failed the gate over missing data rather than over its own quality. The
+  artifact hand-off costs `code-quality` a `needs: test`, which serialises two jobs that used to
+  run in parallel; since `test` is the workflow's long pole at ~18 minutes and this job takes
+  about one, the bill is roughly a minute of wall clock rather than the second full suite run the
+  obvious implementation would have cost. The upload is set to `if-no-files-found: error`,
+  because a missing report would otherwise surface as 0% coverage, which is indistinguishable
+  from code that genuinely has none.
 - **CI**: removed `.github/workflows/sonarcloud.yml`, the SonarCloud starter template, which had
   been committed with its `-Dsonar.projectKey=` and `-Dsonar.organization=` placeholders still
   empty and which invoked the same generic CLI scanner that cannot analyse C#. It duplicated the
