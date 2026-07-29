@@ -41,7 +41,11 @@ jobs:
       
     - name: Upload coverage reports to Codecov
       if: matrix.os == 'ubuntu-latest'
-      uses: codecov/codecov-action@v7
+      # Pinned to the commit v7.0.0 points to rather than to the @v7 tag. A tag is a mutable
+      # ref: whoever controls the action's repository can repoint it at other code, and this
+      # step is handed a repository secret. Bump the SHA deliberately when upgrading — the
+      # comment records which release it is so the pin stays readable.
+      uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
       with:
         # Tokenless uploads are rate limited per IP across all of GitHub's shared
         # runners, which is why every run was failing with HTTP 429. Set the
@@ -311,8 +315,3 @@ jobs:
       run: |
         set -euo pipefail
         dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
-
-    # No coverage is fed to Sonar. It would mean running the ~26-minute suite a second time in
-    # this job — which is what was removed here — and re-collecting it in OpenCover format,
-    # since Sonar's C# plugin does not read the Cobertura reports the `test` job produces.
-    # Coverage lives in Codecov; this job is static analysis.
