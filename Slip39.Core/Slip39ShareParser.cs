@@ -310,7 +310,7 @@ public static class Slip39ShareParser
         }
 
         // Parse checksum (30 bits)
-        var checksum = (uint)ReadBits(bits, ref bitIndex, 30);
+        var checksum = ReadBits(bits, ref bitIndex, 30);
 
         var share = new Slip39Share(identifier, isExtendable, iterationExponent,
             groupIndex, groupThreshold, groupCount, memberIndex, memberThreshold,

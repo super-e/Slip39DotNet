@@ -256,14 +256,13 @@ public class Slip39EncryptionTests
     [Fact]
     public void Encrypt_NullArguments_ShouldThrow()
     {
-        // Arrange
-        var masterSecret = new byte[16];
+        // Arrange - no master secret local: null is the argument under test.
         var passphrase = "test";
         byte iterationExponent = 0;
         ushort identifier = 0x1000;
         bool isExtendable = true;
 
-        // Act  Assert
+        // Act & Assert
         Assert.Throws<ArgumentNullException>(() => Slip39Encryption.Encrypt(null!, passphrase, 
             iterationExponent, identifier, isExtendable));
     }

@@ -14,7 +14,6 @@ namespace Slip39.Core.Tests;
 public class Slip39ShareParserTests
 {
     private readonly Slip39Share _testShare;
-    private readonly string _testHex;
     private readonly string _testJson;
 
     public Slip39ShareParserTests()
@@ -34,9 +33,6 @@ public class Slip39ShareParserTests
             shareValue: new byte[] { 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10 },
             checksum: 0
         ));
-
-        // Generate test hex from the share
-        _testHex = _testShare.ToHex();
 
         // Generate test JSON from the share
         _testJson = Slip39ShareParser.ToJson(_testShare);

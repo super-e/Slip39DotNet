@@ -48,12 +48,18 @@ public static class Rs1024Checksum
         if (values.Length < 3) // Minimum mnemonic length
             throw new ArgumentException("Mnemonic must have at least 3 words");
 
-        // All values must be in the range [0, 1023]
+        // All values must be in the range [0, 1023].
+        //
+        // S3267 suggests replacing this with a Where clause. The loop exists to throw naming the
+        // offending value, which is what makes a mistyped word diagnosable; a LINQ filter would
+        // either discard that value or need the same body to recover it.
+#pragma warning disable S3267
         foreach (var value in values)
         {
             if (value >= 1024)
                 throw new ArgumentException($"All word values must be less than 1024, got {value}");
         }
+#pragma warning restore S3267
 
         return CalculateChecksum(values, isExtendable) == 1;
     }

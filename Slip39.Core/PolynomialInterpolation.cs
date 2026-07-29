@@ -200,7 +200,7 @@ public static class PolynomialInterpolation
         // destroys a share the caller still holds.
         if (threshold == 1)
         {
-            byte[] onlyShare = shares.First().value;
+            byte[] onlyShare = shares[0].value;
             var copy = new byte[onlyShare.Length];
             Array.Copy(onlyShare, copy, onlyShare.Length);
             return copy;
