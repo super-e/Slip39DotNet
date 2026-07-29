@@ -211,3 +211,13 @@ dotnet_diagnostic.CA5397.severity = error    # Do not use deprecated SslProtocol
 dotnet_diagnostic.CS8604.severity = suggestion  # Possible null reference argument
 dotnet_diagnostic.CS8600.severity = suggestion  # Converting null literal or possible null value
 dotnet_diagnostic.CS8625.severity = suggestion  # Cannot convert null literal to non-nullable reference type
+
+# SonarAnalyzer rules that are decisions rather than defects.
+#
+# S1133 "Do not forget to remove this deprecated code someday" fires on every [Obsolete]
+# member. This release deliberately introduced four of them — Bip32MasterKey.GenerateMasterKey's
+# passphrase overload, Slip39Main.CombineMnemonics, Slip39Passphrase.EstimatePassphraseEntropy
+# and Slip39ShareGeneration.CombineShares — so that callers of the old API keep compiling while
+# being pointed at the replacement. Acting on this rule would mean deleting them, which is the
+# breaking change the obsolete markers exist to avoid. Revisit when a major version drops them.
+dotnet_diagnostic.S1133.severity = none

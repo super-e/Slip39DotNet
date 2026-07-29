@@ -38,7 +38,13 @@ public class GaloisField256Tests
             for (byte secondElement = 1; secondElement <= 10; secondElement++)
             {
                 var result1 = GaloisField256.Add(firstElement, secondElement);
+                // S2234 reports that these arguments are passed in an order that does not match
+                // the parameter names. That swap is the property under test: reordering them to
+                // satisfy the rule would leave two identical calls and an assertion that cannot
+                // fail.
+#pragma warning disable S2234
                 var result2 = GaloisField256.Add(secondElement, firstElement);
+#pragma warning restore S2234
                 Assert.Equal(result1, result2);
             }
         }

@@ -65,6 +65,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Slip39ReferenceVectorTests.ValidMnemonics_ShouldGenerateCorrectMasterKey` already asserts
   mnemonic-to-`xprv` against every valid reference vector, which is what the largest of the four
   was printing for one of them.
+- The RS1024 checksum is verified against the specification instead of against itself. The only
+  test asserting that a valid checksum verifies built its input with `GenerateChecksum` and
+  handed it to `VerifyChecksum` — two halves of one implementation confirming each other, both
+  calling the same `CalculateChecksum`, so any error shared between them passed unnoticed. Its
+  own comment admitted the input was a placeholder. Three tests now anchor to a reference-vector
+  mnemonic whose checksum came from the reference implementation: one that it verifies, one that
+  a single altered word breaks it, and one that `GenerateChecksum` reproduces its last three
+  words exactly. Confirmed by corrupting the customization string that `GenerateChecksum` and
+  `VerifyChecksum` share: the three new tests fail, and the round-trip test — kept, but no longer
+  the only evidence — still passes.
 
 ### Documentation
 - Complete API documentation
@@ -188,6 +198,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   interop vectors were already loaded this way, so the two spellings now agree.
 
 ### Changed
+- Sixteen SonarAnalyzer findings triaged and cleared. Six were real and are fixed: an unread
+  `_testHex` field and two unused locals, `First()` where an index does the job, a redundant
+  `(uint)` cast over a method already returning `uint`, and `Program` made `static` now that
+  every member is a constant. Eight are decisions rather than defects and are suppressed where
+  the reasoning belongs — `S1133` project-wide in `.editorconfig`, since acting on it would mean
+  deleting the four `[Obsolete]` members this release added for compatibility; `S2234` at the
+  site, because the "wrong" argument order is the commutativity the test exists to check and
+  reordering it would leave an assertion that cannot fail; `S127` around the CLI argument loop,
+  where advancing the counter is how a variadic flag is consumed; `S3267` where a LINQ filter
+  would discard the value that makes the error message diagnosable. One was a false positive on
+  prose that resembled code, reworded. Half of what a quality tool reports on this codebase
+  turned out not to want fixing, and a bulk auto-fix would have broken a test, disturbed
+  argument parsing, and removed four public APIs.
+- A stray `\x1f` control character in a comment in `Slip39EncryptionTests`, found because it
+  made an exact-match edit fail. A sweep of every tracked source file found no others.
 - `Slip39ShareGeneration.CombineShares` is now `[Obsolete]` and forwards to
   `Slip39ShareCombination.CombineShares`. It had been a second, independent implementation of
   the same algorithm, and the two had drifted: it never received the key-material zeroing,

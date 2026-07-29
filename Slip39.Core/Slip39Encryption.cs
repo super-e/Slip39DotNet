@@ -141,8 +141,9 @@ public static class Slip39Encryption
             CryptographicOperations.ZeroMemory(key);
             CryptographicOperations.ZeroMemory(passphraseBytes);
             CryptographicOperations.ZeroMemory(salt);
-            // saltPrefix contains only public data ("shamir" + id bytes) when non-extendable;
-            // zero it anyway to be consistent, but skip the Array.Empty singleton.
+            // For a non-extendable share the salt prefix holds only public data — the literal
+            // shamir tag followed by the identifier bytes — but zero it anyway for consistency.
+            // The Array.Empty singleton is shared process-wide and must not be written to.
             if (saltPrefix.Length > 0)
                 CryptographicOperations.ZeroMemory(saltPrefix);
         }

@@ -6,7 +6,7 @@ using SystemConsole = System.Console;
 
 namespace Slip39.Console;
 
-class Program
+static class Program
 {
     /// <summary>Process exit code signalling that the command completed successfully.</summary>
     internal const int ExitSuccess = 0;
@@ -370,6 +370,12 @@ class Program
         bool reconstructXpriv = false;
 
         // Parse arguments
+        // S127 objects to the loop counter being advanced inside the body. That is how a
+        // variadic flag is consumed: `--shares a b c` swallows arguments until the next flag,
+        // and `i--` hands the position back to the for-loop's own increment. Rewriting the
+        // argument parser to satisfy the rule would risk an off-by-one in how the CLI reads a
+        // recovery command, for no behavioural gain.
+#pragma warning disable S127
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
@@ -409,6 +415,7 @@ class Program
                     return UnknownOption(args[i], "combine");
             }
         }
+#pragma warning restore S127
 
         if (shareStrings.Count == 0)
         {
