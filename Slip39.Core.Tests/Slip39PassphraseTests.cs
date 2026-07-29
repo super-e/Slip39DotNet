@@ -216,7 +216,7 @@ public class Slip39PassphraseTests
     [Fact]
     public void ArePassphrasesEqual_NullAndEmpty_ShouldReturnTrue()
     {
-        // Act - Both null and empty should resolve to "TREZOR" default
+        // Both mean "no passphrase", which the specification defines as the empty string.
         var areEqual = Slip39Passphrase.ArePassphrasesEqual(null, "");
         
         // Assert

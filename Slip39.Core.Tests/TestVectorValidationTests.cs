@@ -14,9 +14,11 @@ public class TestVectorValidationTests
 
     private static object[][] LoadRawTestVectors()
     {
-        var currentDirectory = Directory.GetCurrentDirectory();
-        var vectorsPath = Path.Combine(currentDirectory, "vectors.json");
-        
+        // AppContext.BaseDirectory, not Directory.GetCurrentDirectory(): the csproj copies
+        // vectors.json next to the test assembly, and the working directory is the runner's to
+        // choose. They happen to coincide under `dotnet test` today.
+        var vectorsPath = Path.Join(AppContext.BaseDirectory, "vectors.json");
+
         if (!File.Exists(vectorsPath))
         {
             throw new FileNotFoundException($"Test vectors file not found at: {vectorsPath}");
