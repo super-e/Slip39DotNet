@@ -145,12 +145,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prints what it finds and exits 0 whether or not it found anything, so the step named "Security
   scan" was informational only: a vulnerable transitive dependency would have been printed into
   a green log. The step now reads its own report and exits non-zero on a hit.
-- **CI**: the SonarCloud scan can run. Its `if: env.SONAR_TOKEN != ''` guard tested a variable
-  the same step defined in its own `env:`, which is not in scope for that step's `if:` — so the
-  condition compared `''` to `''` and skipped the scan on every run since the workflow was
-  written. `SONAR_TOKEN` is now a job-level env, which the condition can see. The scan has
-  therefore never executed; the first run that finds a configured token will be its first real
-  test, and may need follow-up.
+- **CI**: the SonarCloud scan can run, and analyses C# when it does. Two separate faults. Its
+  `if: env.SONAR_TOKEN != ''` guard tested a variable the same step defined in its own `env:`,
+  which is not in scope for that step's `if:` — so the condition compared `''` to `''` and
+  skipped the scan on every run since the workflow was written; `SONAR_TOKEN` is now a job-level
+  env, which the condition can see. And the step ran `sonarcloud-github-action`, which invokes
+  the generic CLI scanner: C# analysis happens inside MSBuild, so that scanner never sees a
+  single C# file. Had the guard been fixed alone, the result would have been a green "Code
+  Quality" check reporting a successful scan of nothing. The job now uses SonarScanner for .NET
+  — `begin`, a non-incremental build, `end` — and skips cleanly when no token is configured. No
+  coverage is fed to Sonar: that would mean running the full suite again in this job, and
+  re-collecting it in OpenCover format, since Sonar's C# plugin does not read Cobertura. When
+  the scan is skipped the job now says so with a `::notice::` rather than leaving it to be
+  inferred from which steps are missing: a skipped scan and a real one both leave a green check,
+  and that ambiguity had already been read the wrong way once.
+- **CI**: removed `.github/workflows/sonarcloud.yml`, the SonarCloud starter template, which had
+  been committed with its `-Dsonar.projectKey=` and `-Dsonar.organization=` placeholders still
+  empty and which invoked the same generic CLI scanner that cannot analyse C#. It duplicated the
+  `code-quality` job's purpose while being unable to fulfil it.
 - **CI**: release assets are uploaded with `gh release upload` instead of
   `actions/upload-release-asset@v1`, which GitHub archived in 2021. `build-artifacts` only runs
   on a `release` event, so this path has never executed and its failure would have been
