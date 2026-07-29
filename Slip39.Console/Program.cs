@@ -14,6 +14,20 @@ static class Program
     /// <summary>Process exit code signalling that the command failed.</summary>
     internal const int ExitFailure = 1;
 
+    /// <summary>
+    /// Accepted separators between the threshold and the total in a group specification,
+    /// so that "2-of-3", "2/3", "2:3" and "2 of 3" all parse. Hoisted out of
+    /// <see cref="ParseGroupConfigurations"/>, which splits once per group on every
+    /// invocation and only reads the separators.
+    /// </summary>
+    private static readonly string[] GroupConfigSeparators = { "-of-", "/", ":", " of " };
+
+    /// <summary>
+    /// Version bytes of a mainnet BIP-32 extended private key (0x0488ADE4), compared against
+    /// the first four bytes of a decoded xprv.
+    /// </summary>
+    private static readonly byte[] MainnetPrivateVersion = { 0x04, 0x88, 0xAD, 0xE4 };
+
     static int Main(string[] args) => Run(args);
 
     /// <summary>
@@ -281,7 +295,7 @@ static class Program
             foreach (var group in groups)
             {
                 // Parse format like "2-of-3" or "2/3"
-                var parts = group.Trim().Split(new[] { "-of-", "/", ":", " of " }, StringSplitOptions.RemoveEmptyEntries);
+                var parts = group.Trim().Split(GroupConfigSeparators, StringSplitOptions.RemoveEmptyEntries);
                 
                 if (parts.Length != 2)
                 {
@@ -1194,9 +1208,8 @@ static class Program
             // — producing a confident-looking backup of something that cannot restore a wallet.
             var version = new byte[4];
             Array.Copy(extendedKeyData, 0, version, 0, 4);
-            var expectedVersion = new byte[] { 0x04, 0x88, 0xAD, 0xE4 };
 
-            if (!version.SequenceEqual(expectedVersion))
+            if (!version.SequenceEqual(MainnetPrivateVersion))
             {
                 var versionHex = Convert.ToHexString(version);
                 SystemConsole.Error.WriteLine($"Error: unexpected version bytes {versionHex}; expected 0488ADE4 for a mainnet xprv.");
