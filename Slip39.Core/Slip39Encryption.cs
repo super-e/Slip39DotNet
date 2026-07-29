@@ -12,6 +12,13 @@ public static class Slip39Encryption
 {
     private const int ROUND_COUNT = 4;
     private const int BASE_ITERATION_COUNT = 10000;
+
+    // Feistel round indices, ascending for encryption and descending for decryption.
+    // Crypt only enumerates the array it is handed and never writes to it, so both
+    // directions share a single instance instead of allocating one per call.
+    private static readonly byte[] EncryptRoundIndices = { 0, 1, 2, 3 };
+    private static readonly byte[] DecryptRoundIndices = { 3, 2, 1, 0 };
+
     /// <summary>
     /// Encrypts a master secret using the SLIP-0039 encryption algorithm.
     /// </summary>
@@ -37,7 +44,7 @@ public static class Slip39Encryption
         if (identifier > 0x7FFF)
             throw new ArgumentException("Identifier must be 15 bits or less", nameof(identifier));
         
-        return Crypt(identifier, iterationExponent, masterSecret, new byte[] {0, 1, 2, 3}, passphrase, isExtendable);
+        return Crypt(identifier, iterationExponent, masterSecret, EncryptRoundIndices, passphrase, isExtendable);
     }
     
     /// <summary>
@@ -65,13 +72,17 @@ public static class Slip39Encryption
         if (identifier > 0x7FFF)
             throw new ArgumentException("Identifier must be 15 bits or less", nameof(identifier));
         
-        return Crypt(identifier, iterationExponent, encryptedMasterSecret, new byte[] {3, 2, 1, 0}, passphrase, isExtendable);
+        return Crypt(identifier, iterationExponent, encryptedMasterSecret, DecryptRoundIndices, passphrase, isExtendable);
     }
     
     /// <summary>
     /// Core Feistel network implementation matching reference.
     /// Intermediate half-buffers are zeroed as soon as they are no longer needed.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="range"/> is one of the shared round-index arrays and must be treated as
+    /// read-only: it carries no secret material, so it is neither modified nor zeroed here.
+    /// </remarks>
     private static byte[] Crypt(int identifier, int iterationExponent, byte[] masterSecret, byte[] range, string? passphrase, bool extendable)
     {
         int len = masterSecret.Length / 2;
