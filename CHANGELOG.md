@@ -155,7 +155,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Quality" check reporting a successful scan of nothing. The job now uses SonarScanner for .NET
   — `begin`, a non-incremental build, `end` — and skips cleanly when no token is configured. No
   coverage is fed to Sonar: that would mean running the full suite again in this job, and
-  re-collecting it in OpenCover format, since Sonar's C# plugin does not read Cobertura.
+  re-collecting it in OpenCover format, since Sonar's C# plugin does not read Cobertura. When
+  the scan is skipped the job now says so with a `::notice::` rather than leaving it to be
+  inferred from which steps are missing: a skipped scan and a real one both leave a green check,
+  and that ambiguity had already been read the wrong way once.
+- **CI**: removed `.github/workflows/sonarcloud.yml`, the SonarCloud starter template, which had
+  been committed with its `-Dsonar.projectKey=` and `-Dsonar.organization=` placeholders still
+  empty and which invoked the same generic CLI scanner that cannot analyse C#. It duplicated the
+  `code-quality` job's purpose while being unable to fulfil it.
 - **CI**: release assets are uploaded with `gh release upload` instead of
   `actions/upload-release-asset@v1`, which GitHub archived in 2021. `build-artifacts` only runs
   on a `release` event, so this path has never executed and its failure would have been
