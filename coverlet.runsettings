@@ -8,7 +8,8 @@
           <Exclude>[coverlet.*.tests?]*,[*]Coverlet.Core*</Exclude> <!-- [Assembly-Filter]Type-Filter -->
           <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute</ExcludeByAttribute>
           <ExcludeByFile>**/Migrations/**/*.cs,**/wwwroot/**/*.cs,**/*Designer.cs,**/*.g.cs,**/*.g.i.cs</ExcludeByFile> <!-- Globbing filter -->
-          <IncludeDirectory>../src/</IncludeDirectory>
+          <!-- There is no src/ directory in this repository; the entry was template leftover.
+               It mattered little while this file was unused, but the test job reads it now. -->
         </Configuration>
       </DataCollector>
     </DataCollectors>

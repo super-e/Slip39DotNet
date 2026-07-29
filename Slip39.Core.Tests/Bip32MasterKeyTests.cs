@@ -13,7 +13,6 @@ public class Bip32MasterKeyTests
     {
         // Arrange
         var masterSecret = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
-        var passphrase = "TREZOR";
 
         // Act
         var result = Bip32MasterKey.GenerateMasterKey(masterSecret);
@@ -49,7 +48,6 @@ public class Bip32MasterKeyTests
         // Arrange
         var masterSecret1 = new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
         var masterSecret2 = new byte[16] { 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 };
-        var passphrase = "TREZOR";
 
         // Act
         var result1 = Bip32MasterKey.GenerateMasterKey(masterSecret1);
@@ -67,7 +65,6 @@ public class Bip32MasterKeyTests
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
         };
-        var passphrase = "test passphrase";
 
         // Act
         var result1 = Bip32MasterKey.GenerateMasterKey(masterSecret);
@@ -187,8 +184,8 @@ public class Bip32MasterKeyTests
     {
         // Arrange - Use a known test xpriv key
         var originalXpriv = "xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi";
-        var passphrase = "TREZOR";
-        
+        var passphrase = "TREZOR"; // an arbitrary passphrase here; the round trip uses it both ways
+
         // Act 1: Split the xpriv into SLIP-0039 shares
         var extendedKeyData = Base58Check.Decode(originalXpriv);
         
