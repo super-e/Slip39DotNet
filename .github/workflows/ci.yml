@@ -201,32 +201,71 @@ jobs:
     # so a job-level env is the way to make the condition see the secret.
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      # Not secrets — the project key and organization appear in the project's SonarCloud URL.
+      # Kept here rather than in a sonar-project.properties file, which SonarScanner for .NET
+      # ignores: it takes its configuration from the `begin` command line.
+      SONAR_ORGANIZATION: super-e
+      SONAR_PROJECT_KEY: super-e_Slip39DotNet
+      # The EU (Frankfurt) region is served by sonarcloud.io. An organization created in another
+      # region has a different endpoint and this value has to match it.
+      SONAR_HOST_URL: https://sonarcloud.io
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
       with:
+        # Sonar needs the full history to assign issues to the commit that introduced them.
         fetch-depth: 0
-        
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
-        
-    - name: Restore dependencies
-      run: dotnet restore
-      
-    - name: Build
-      run: dotnet build --configuration Release --no-restore
-      
-    - name: SonarCloud Scan
+
+    # The scanner is a Java application; without a JDK the `begin` step fails on a runner that
+    # otherwise has everything .NET needs.
+    - name: Setup JDK
       if: env.SONAR_TOKEN != ''
-      uses: SonarSource/sonarcloud-github-action@master
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    # SonarScanner for .NET, not the generic CLI scanner the `sonarcloud-github-action` runs.
+    # C# analysis happens inside MSBuild: `begin` installs the analyzers, the build produces the
+    # analysis output, `end` uploads it. The CLI scanner never sees a single C# file, so the job
+    # it replaces would have reported a successful scan of nothing — the exact shape of defect
+    # this repository has been clearing out.
+    #
+    # The whole sequence is skipped when SONAR_TOKEN is unset, which is the state of the
+    # repository until the secret is configured. Skipped, not failed: an unconfigured optional
+    # scanner should not block a merge.
+    - name: Begin SonarCloud analysis
+      if: env.SONAR_TOKEN != ''
+      run: |
+        set -euo pipefail
+        dotnet tool install --global dotnet-sonarscanner
+        dotnet sonarscanner begin \
+          /k:"${{ env.SONAR_PROJECT_KEY }}" \
+          /o:"${{ env.SONAR_ORGANIZATION }}" \
+          /d:sonar.token="$SONAR_TOKEN" \
+          /d:sonar.host.url="${{ env.SONAR_HOST_URL }}"
+
+    # --no-incremental on purpose: the scanner can only see code MSBuild actually compiles, and
+    # an incremental build that skips an up-to-date project would silently drop it from the
+    # analysis.
+    - name: Build
+      run: dotnet build --configuration Release --no-incremental
+
+    - name: End SonarCloud analysis
+      if: env.SONAR_TOKEN != ''
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -euo pipefail
+        dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
 
-    # The full test suite used to run again here, after the `test` job had already run it on
-    # three operating systems, and the HTML coverage report it generated was written to a
-    # directory nothing ever read or uploaded. The suite takes ~26 minutes; this ran it a fourth
-    # time to throw the result away. Coverage comes from the `test` job, which uploads it to
-    # Codecov, and now uses coverlet.runsettings so the exclusions configured here are not lost.
+    # No coverage is fed to Sonar. It would mean running the ~26-minute suite a second time in
+    # this job — which is what was removed here — and re-collecting it in OpenCover format,
+    # since Sonar's C# plugin does not read the Cobertura reports the `test` job produces.
+    # Coverage lives in Codecov; this job is static analysis.
