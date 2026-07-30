@@ -379,7 +379,12 @@ This implementation follows the [SLIP-0039](https://github.com/satoshilabs/slips
 
 ## AI Development Disclaimer
 
-🤖 **This entire repository was completely vibe-coded using Warp AI Terminal Agent Mode.** Not a single line of code, comment, documentation, or ancillary file was edited manually. The entire SLIP-0039 .NET implementation, CLI application, tests, documentation, and project infrastructure were generated through AI-assisted development in the terminal.
+🤖 **This entire repository was completely vibe-coded with AI coding agents.** Not a single line of code, comment, documentation, or ancillary file was edited manually. The SLIP-0039 .NET implementation, CLI application, tests, documentation, and project infrastructure were all generated through AI-assisted development in the terminal.
+
+Two agents were used:
+
+- **Warp AI Terminal Agent Mode** — the initial implementation and the bulk of the project.
+- **Claude Code** (models Sonnet 5 and Opus 5) — subsequent work, including specification-compliance fixes, test hardening, security review, and the CI pipeline.
 
 ## Disclaimer
 
